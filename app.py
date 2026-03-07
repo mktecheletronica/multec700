@@ -15,29 +15,38 @@ Hospedagem gratuita via **Streamlit Community Cloud**.
 st.sidebar.header("Configurações")
 uploaded_file = st.sidebar.file_uploader("Escolha o arquivo de log (.txt ou .csv)", type=['txt', 'csv'])
 
-# Dicionário de mapeamento (Ajuste aqui os nomes das colunas conforme sua injeção)
-# Exemplo: {0: "RPM", 1: "MAP", 2: "TPS", ...}
+# Dicionário de mapeamento inicial (Podemos expandir conforme você identificar os sensores)
 COLUNAS_PADRAO = {
-    0: "Coluna_0",
-    1: "Coluna_1",
-    2: "Coluna_2",
-    3: "Coluna_3",
-    4: "Coluna_4",
-    # Adicione mais conforme souber o que cada uma significa
+    0: "RPM",
+    1: "MAP (mbar)",
+    2: "TPS (%)",
+    3: "Temp. Água (°C)",
+    4: "Temp. Ar (°C)",
+    # Adicione mais aqui...
 }
 
 if uploaded_file is not None:
     try:
-        # Lendo o arquivo. Como não tem header, usamos header=None
-        df = pd.read_csv(uploaded_file, sep='|', header=None)
+        # Lendo o arquivo com tratamento de erro para linhas malformadas
+        # on_bad_lines='skip' evita que o app trave se houver uma linha incompleta no fim do arquivo
+        df = pd.read_csv(
+            uploaded_file, 
+            sep='|', 
+            header=None, 
+            engine='python', 
+            on_bad_lines='skip'
+        )
         
-        # Renomeia as colunas que conhecemos, as outras ficam com o índice numérico
-        df.columns = [COLUNAS_PADRAO.get(i, f"Campo_{i}") for i in range(len(df.columns))]
+        # Remove colunas totalmente vazias (caso o log termine em '|')
+        df = df.dropna(axis=1, how='all')
+        
+        # Renomeia as colunas
+        df.columns = [COLUNAS_PADRAO.get(i, f"Sensor_{i}") for i in range(len(df.columns))]
 
         st.success(f"Log carregado com sucesso! Total de registros: {len(df)}")
 
         # Visualização dos dados brutos
-        if st.checkbox("Mostrar tabela de dados brutos"):
+        with st.expander("Ver tabela de dados brutos"):
             st.dataframe(df.head(100))
 
         st.divider()
@@ -47,40 +56,44 @@ if uploaded_file is not None:
         col1, col2 = st.columns(2)
         
         with col1:
-            eixo_x = st.selectbox("Eixo X (Geralmente Tempo ou RPM)", options=df.columns, index=0)
+            # O usuário pode escolher qualquer coluna para o tempo (ou usar o índice se não houver coluna de tempo)
+            eixo_x = st.selectbox("Eixo X (Referência)", options=df.columns, index=0)
         
         with col2:
-            eixos_y = st.multiselect("Sensores para o Eixo Y (Pode selecionar vários)", 
+            # Seleção múltipla para comparar sensores
+            eixos_y = st.multiselect("Sensores para o Eixo Y (Visualização)", 
                                     options=df.columns, 
                                     default=[df.columns[1] if len(df.columns)>1 else df.columns[0]])
 
         if eixos_y:
             # Criando o gráfico interativo
             fig = px.line(df, x=eixo_x, y=eixos_y, 
-                         title=f"Análise: {', '.join(eixos_y)} vs {eixo_x}",
-                         render_mode="webgl") # WebGL é mais rápido para logs longos
+                         title=f"Análise de Desempenho",
+                         render_mode="webgl")
             
-            # Melhorando o layout para telas de computador/mobile
             fig.update_layout(
                 hovermode="x unified",
                 legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-                margin=dict(l=20, r=20, t=50, b=20)
+                margin=dict(l=20, r=20, t=50, b=20),
+                xaxis_title=eixo_x,
+                yaxis_title="Valor do Sensor"
             )
             
             st.plotly_chart(fig, use_container_width=True)
             
-            # Estatísticas Básicas
-            st.subheader("Resumo dos Sensores Selecionados")
-            st.write(df[eixos_y].describe().T[['min', 'max', 'mean']])
+            # Estatísticas Rápidas
+            st.subheader("Resumo Estatístico")
+            st.dataframe(df[eixos_y].describe().T[['min', 'max', 'mean']])
             
         else:
-            st.warning("Selecione pelo menos um sensor no Eixo Y para gerar o gráfico.")
+            st.warning("Selecione pelo menos um sensor para exibir o gráfico.")
 
     except Exception as e:
-        st.error(f"Erro ao processar o arquivo: {e}")
+        st.error(f"Erro crítico ao processar o arquivo: {e}")
+        st.info("Dica: Verifique se o arquivo não está vazio ou se o formato está correto.")
 else:
-    st.info("Aguardando upload de arquivo para iniciar a análise.")
+    st.info("Faça o upload do seu arquivo de log no menu lateral para começar.")
     
-# Rodapé informativo
+# Rodapé
 st.sidebar.markdown("---")
-st.sidebar.info("Desenvolvido para análise de logs Multec/Injeção Eletrônica.")
+st.sidebar.caption("Versão 1.1 - Ajuste de estabilidade")
