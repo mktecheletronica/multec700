@@ -3,97 +3,89 @@ import pandas as pd
 import plotly.express as px
 
 # Configuração da página
-st.set_page_config(page_title="Datalogger View", layout="wide")
+st.set_page_config(page_title="Multec 700 Logger Pro", layout="wide")
 
-st.title("📊 Analisador de Logs - Injeção Eletrônica")
-st.markdown("""
-Esta ferramenta processa arquivos de log com separador `|` e gera gráficos interativos. 
-Hospedagem gratuita via **Streamlit Community Cloud**.
-""")
+st.title("📊 Analisador de Logs - Multec 700")
 
-# Sidebar para Upload e Configurações
-st.sidebar.header("Configurações")
-uploaded_file = st.sidebar.file_uploader("Escolha o arquivo de log (.txt ou .csv)", type=['txt', 'csv'])
-
-# Dicionário de mapeamento inicial (Podemos expandir conforme você identificar os sensores)
-COLUNAS_PADRAO = {
-    0: "RPM",
-    1: "MAP (mbar)",
-    2: "TPS (%)",
-    3: "Temp. Água (°C)",
-    4: "Temp. Ar (°C)",
-    # Adicione mais aqui...
+# Mapeamento baseado no snprintf fornecido
+COLUNAS_DETALHADAS = {
+    0: "Tempo (s)", 1: "RPM", 2: "Temp Água (°C)", 3: "Temp Água (V)",
+    4: "Velocidade (km/h)", 5: "TPS (%)", 6: "TPS (V)", 7: "Bateria (V)",
+    8: "Sonda O2 (V)", 9: "Avanço (°)", 10: "Memcal ID", 11: "BPW (ms)",
+    12: "MAP (V)", 13: "AFR Partida", 14: "AFR Atual", 15: "IAC (Passos)",
+    16: "Marcha Lenta Ideal", 17: "Pressão Atm (V)", 18: "Flag_RAQ", 19: "Flag_ACC",
+    20: "Flag_BCE", 21: "Flag_CAC", 22: "Flag_FV2", 23: "Flag_FV1",
+    24: "Flag_RPF", 25: "Flag_SHIFT", 26: "Flag_ISV", 27: "Flag_MALFS",
+    28: "Erro_VSS_24", 29: "Erro_TPS_Low_22", 30: "Erro_TPS_High_21",
+    31: "Erro_CTS_Low_15", 32: "Erro_CTS_High_14", 33: "Erro_HEI_42",
+    34: "Erro_IAC_35", 35: "Erro_MAP_Low_34", 36: "Erro_MAP_High_33",
+    37: "Erro_CO2_54", 38: "Erro_Memcal_51", 39: "Em Movimento",
+    40: "MAP (KPa)", 41: "Pressão Atm (KPa)", 42: "Tempo Ref (ms)",
+    43: "Flag_IDLE", 44: "Flag_CLEAR", 45: "Flag_PARK", 46: "Flag_CUTOFF",
+    47: "Motor Ligado", 48: "Consumo (L/h)", 49: "Total Combustível (L)",
+    50: "Distância Total (km)", 51: "Consumo Médio (km/L)", 52: "Versão HW"
 }
+
+# Sidebar
+st.sidebar.header("Arquivo de Log")
+uploaded_file = st.sidebar.file_uploader("Upload do arquivo .txt do Multec", type=['txt', 'csv'])
 
 if uploaded_file is not None:
     try:
-        # Lendo o arquivo com tratamento de erro para linhas malformadas
-        # on_bad_lines='skip' evita que o app trave se houver uma linha incompleta no fim do arquivo
-        df = pd.read_csv(
-            uploaded_file, 
-            sep='|', 
-            header=None, 
-            engine='python', 
-            on_bad_lines='skip'
-        )
+        # Carregamento dos dados
+        df = pd.read_csv(uploaded_file, sep='|', header=None, engine='python', on_bad_lines='skip')
         
-        # Remove colunas totalmente vazias (caso o log termine em '|')
-        df = df.dropna(axis=1, how='all')
+        # Ajuste de colunas caso o arquivo tenha delimitador sobrando no final
+        if len(df.columns) > len(COLUNAS_DETALHADAS):
+            df = df.iloc[:, :len(COLUNAS_DETALHADAS)]
         
-        # Renomeia as colunas
-        df.columns = [COLUNAS_PADRAO.get(i, f"Sensor_{i}") for i in range(len(df.columns))]
+        df.columns = [COLUNAS_DETALHADAS.get(i, f"Extra_{i}") for i in range(len(df.columns))]
 
-        st.success(f"Log carregado com sucesso! Total de registros: {len(df)}")
-
-        # Visualização dos dados brutos
-        with st.expander("Ver tabela de dados brutos"):
-            st.dataframe(df.head(100))
-
-        st.divider()
-
-        # Filtros de Gráfico
-        st.subheader("Configuração do Gráfico")
-        col1, col2 = st.columns(2)
+        # --- Dashboard de Falhas ---
+        erros_cols = [c for c in df.columns if c.startswith("Erro_")]
+        tem_falha = df[erros_cols].any().any()
         
-        with col1:
-            # O usuário pode escolher qualquer coluna para o tempo (ou usar o índice se não houver coluna de tempo)
-            eixo_x = st.selectbox("Eixo X (Referência)", options=df.columns, index=0)
-        
-        with col2:
-            # Seleção múltipla para comparar sensores
-            eixos_y = st.multiselect("Sensores para o Eixo Y (Visualização)", 
-                                    options=df.columns, 
-                                    default=[df.columns[1] if len(df.columns)>1 else df.columns[0]])
-
-        if eixos_y:
-            # Criando o gráfico interativo
-            fig = px.line(df, x=eixo_x, y=eixos_y, 
-                         title=f"Análise de Desempenho",
-                         render_mode="webgl")
-            
-            fig.update_layout(
-                hovermode="x unified",
-                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-                margin=dict(l=20, r=20, t=50, b=20),
-                xaxis_title=eixo_x,
-                yaxis_title="Valor do Sensor"
-            )
-            
-            st.plotly_chart(fig, use_container_width=True)
-            
-            # Estatísticas Rápidas
-            st.subheader("Resumo Estatístico")
-            st.dataframe(df[eixos_y].describe().T[['min', 'max', 'mean']])
-            
+        if tem_falha:
+            with st.expander("⚠️ FALHAS DETECTADAS NO LOG", expanded=True):
+                for col in erros_cols:
+                    if df[col].any():
+                        vezes = df[col].sum()
+                        st.error(f"Falha detectada: {col.replace('Erro_', '').replace('_', ' ')} - Ocorreu em {vezes} amostras.")
         else:
-            st.warning("Selecione pelo menos um sensor para exibir o gráfico.")
+            st.success("✅ Nenhuma falha de sensor registrada neste log.")
+
+        # --- Métricas Principais ---
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("RPM Máximo", f"{int(df['RPM'].max())}")
+        m2.metric("Consumo Médio", f"{df['Consumo Médio (km/L)'].iloc[-1]:.1f} km/L")
+        m3.metric("Temp. Máxima", f"{df['Temp Água (°C)'].max()}°C")
+        m4.metric("Distância", f"{df['Distância Total (km)'].iloc[-1]:.2f} km")
+
+        # --- Gráficos ---
+        st.subheader("Análise Temporal")
+        
+        # Filtro de sensores para o gráfico
+        sensores_disponiveis = [c for c in df.columns if not c.startswith("Flag_") and not c.startswith("Erro_") and c != "Versão HW"]
+        selecionados = st.multiselect("Selecione os sensores para o gráfico:", 
+                                     options=sensores_disponiveis, 
+                                     default=["RPM", "MAP (KPa)", "TPS (%)"])
+
+        if selecionados:
+            fig = px.line(df, x="Tempo (s)", y=selecionados, 
+                          title="Telemetria Dinâmica", 
+                          render_mode="webgl")
+            
+            fig.update_layout(hovermode="x unified", template="plotly_dark")
+            st.plotly_chart(fig, use_container_width=True)
+
+        # --- Análise de Status (Bools) ---
+        with st.expander("Verificar Status do Motor (Flags)"):
+            flags_cols = [c for c in df.columns if c.startswith("Flag_") or c in ["Em Movimento", "Motor Ligado"]]
+            st.write("Presença de sinais ativos durante o log:")
+            st.bar_chart(df[flags_cols].sum())
 
     except Exception as e:
-        st.error(f"Erro crítico ao processar o arquivo: {e}")
-        st.info("Dica: Verifique se o arquivo não está vazio ou se o formato está correto.")
+        st.error(f"Erro ao processar o log: {e}")
+        st.info("Verifique se o arquivo segue o padrão: rtm|rpm|cts|...")
 else:
-    st.info("Faça o upload do seu arquivo de log no menu lateral para começar.")
-    
-# Rodapé
-st.sidebar.markdown("---")
-st.sidebar.caption("Versão 1.1 - Ajuste de estabilidade")
+    st.info("Aguardando upload do arquivo de log...")
