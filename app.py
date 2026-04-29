@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 
 # --- Configuração Inicial da Página ---
 st.set_page_config(page_title="Multec 700 Logger Pro", layout="wide", initial_sidebar_state="expanded")
@@ -23,7 +22,7 @@ COLUNAS = [
     "Versão_HW"
 ]
 
-# --- Configuração dos Limites (Min/Max) Exatos ---
+# --- Configuração dos Limites (Min/Max) Exatos (Fornecidos por você) ---
 LIMITES_SENSORES = {
     "RPM": (0, 6800),
     "CTS (°C)": (0, 120),
@@ -32,7 +31,7 @@ LIMITES_SENSORES = {
     "TPS (%)": (0, 100),
     "TPS (V)": (0.0, 5.0),
     "Bateria (V)": (8.0, 16.0),
-    "O2 (V)": (0.0, 5.0), 
+    "O2 (V)": (0.0, 5.0), # Multec700 não tem sonda, o ajuste é fixo por potenciometro
     "Avanço (°)": (0, 40),
     "BPW (ms)": (0.0, 20.0),
     "MAP (V)": (0.0, 5.0),
@@ -114,10 +113,10 @@ if arquivo_log is not None:
             col_d.metric("MAP Médio", f"{df['MAP (kPa)'].mean():.1f} kPa")
 
         # ==========================================
-        # ABA 2: TELEMETRIA E GRÁFICOS (Eixos Fixos Min/Max)
+        # ABA 2: TELEMETRIA E GRÁFICOS (Escalas Independentes)
         # ==========================================
         with aba2:
-            st.markdown("Dica: Selecione os sensores. Cada um usará sua própria escala fixa (ex: Bateria sempre 8V a 16V).")
+            st.markdown("Dica: Selecione os sensores. Cada curva usa exatamente seus valores Máximos e Mínimos de forma invisível.")
             
             colunas_analogicas = list(LIMITES_SENSORES.keys())
             
@@ -128,69 +127,58 @@ if arquivo_log is not None:
             )
 
             if selecionados:
-                # Cria a figura com eixo Y secundário
-                fig = make_subplots(specs=[[{"secondary_y": True}]])
+                fig = go.Figure()
                 cores = px.colors.qualitative.Plotly
+                layout_updates = {}
                 
-                # Adiciona cada linha ao gráfico
+                # Adiciona cada sensor com o seu próprio eixo invisível
                 for idx, sensor in enumerate(selecionados):
-                    # O primeiro item vai para o eixo esquerdo (False), os demais para o direito (True)
-                    eixo_secundario = False if idx == 0 else True
+                    axis_name = f"y{idx + 1}"
                     
+                    # Adiciona a linha ao gráfico
                     fig.add_trace(
                         go.Scatter(
                             x=df['Tempo_Relogio'], 
                             y=df[sensor], 
                             name=sensor,
                             mode='lines',
-                            line=dict(color=cores[idx % len(cores)])
-                        ),
-                        secondary_y=eixo_secundario,
+                            line=dict(color=cores[idx % len(cores)]),
+                            yaxis=axis_name # Vincula ao eixo matemático exclusivo desta linha
+                        )
+                    )
+                    
+                    # Pega os limites do dicionário (ou calcula automático se não existir)
+                    vmin, vmax = LIMITES_SENSORES.get(sensor, (df[sensor].min(), df[sensor].max()))
+                    
+                    # Configura o eixo matemático desta linha
+                    axis_key = f"yaxis{idx + 1}" if idx > 0 else "yaxis"
+                    layout_updates[axis_key] = dict(
+                        range=[vmin, vmax],       # Aplica o seu Constrain Min/Max
+                        overlaying="y" if idx > 0 else None, # Sobrepõe todos no mesmo espaço visual
+                        visible=False,            # Esconde a numeração lateral conforme você pediu
+                        fixedrange=False          # Permite zoom
                     )
 
-                # Configurações Gerais do Layout
+                # Aplica as configurações gerais
                 fig.update_layout(
+                    **layout_updates,
                     height=600,
                     hovermode="x unified",
                     template="plotly_dark",
                     margin=dict(l=20, r=20, t=50, b=20),
-                    title="Análise de Telemetria (Valores Reais c/ Limites Fixos)"
+                    title="Análise de Telemetria com Escalas Livres e Independentes"
                 )
 
-                # Formata o Eixo X (Tempo) e a Barra de Rolagem Fina
+                # Formata o Eixo X (Tempo) e a Barra de Rolagem
                 fig.update_xaxes(
                     title_text="Tempo (hh:mm:ss)",
                     tickformat="%H:%M:%S",
                     hoverformat="%H:%M:%S.%L",
                     rangeslider=dict(
                         visible=True,
-                        thickness=0.08
+                        thickness=0.05 # Deixei o slider ainda mais fino/elegante
                     )
                 )
-
-                # --- A MÁGICA DOS LIMITES ---
-                if len(selecionados) >= 1:
-                    sensor_esq = selecionados[0]
-                    min_esq, max_esq = LIMITES_SENSORES.get(sensor_esq, (None, None))
-                    # Atualiza Eixo Esquerdo com limite fixo e sem título
-                    fig.update_yaxes(
-                        title_text="", # Título oculto conforme pedido
-                        range=[min_esq, max_esq], 
-                        secondary_y=False
-                    )
-
-                if len(selecionados) >= 2:
-                    # Para simplificar e não criar 10 eixos diferentes, o eixo direito 
-                    # vai adotar o range da SEGUNDA variável selecionada.
-                    sensor_dir = selecionados[1]
-                    min_dir, max_dir = LIMITES_SENSORES.get(sensor_dir, (None, None))
-                    # Atualiza Eixo Direito com limite fixo e sem título
-                    fig.update_yaxes(
-                        title_text="", # Título oculto conforme pedido
-                        range=[min_dir, max_dir], 
-                        secondary_y=True,
-                        showgrid=False # Esconde a grade do eixo secundário para não poluir
-                    )
 
                 st.plotly_chart(fig, use_container_width=True)
 
