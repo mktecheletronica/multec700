@@ -133,7 +133,7 @@ if arquivo_log is not None:
             except:
                 nome_modulo = "Módulo Desconhecido"
                 
-            st.info(f"🧠 **Módulo Identificado:** {nome_modulo}")
+            st.info(f"**Módulo Identificado:** {nome_modulo}")
             
             st.subheader("Resumo do Percurso")
             col1, col2, col3, col4, col5 = st.columns(5)
