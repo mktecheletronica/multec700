@@ -47,10 +47,11 @@ LIMITES_SENSORES = {
 
 
 # --- Função de Carregamento e Processamento de Dados ---
+# ADICIONADO: O parâmetro 'colunas' força o cache a reiniciar se os nomes mudarem
 @st.cache_data
-def carregar_dados(arquivo):
+def carregar_dados(arquivo, colunas):
     try:
-        df = pd.read_csv(arquivo, sep="|", header=None, names=COLUNAS)
+        df = pd.read_csv(arquivo, sep="|", header=None, names=colunas)
         df["RTM (s)"] = pd.to_numeric(df["RTM (s)"], errors="coerce")
         
         # Correção das repetições de segundo
@@ -82,7 +83,8 @@ with st.sidebar:
 
 # --- Lógica Principal ---
 if arquivo_log is not None:
-    df = carregar_dados(arquivo_log)
+    # PASSANDO COLUNAS COMO ARGUMENTO
+    df = carregar_dados(arquivo_log, COLUNAS)
     
     if df is not None and not df.empty:
         versao_dash = df["Versão_HW"].iloc[-1]
