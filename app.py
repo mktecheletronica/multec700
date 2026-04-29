@@ -82,7 +82,21 @@ def carregar_lista_logs_publicos():
     url_planilha = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv"
     try:
         df = pd.read_csv(url_planilha)
-        df.columns = ["Data/Hora", "Usuário", "Comentário", "Veículo", "ID_Arquivo"]
+        
+        # Bloco de segurança para não quebrar o painel durante a transição da planilha
+        if len(df.columns) >= 6:
+            # Novo padrão com 6 colunas
+            df.columns = ["Data/Hora", "ID", "Usuário", "Veículo", "Comentário", "ID_Arquivo"]
+        elif len(df.columns) == 5:
+            # Se for o padrão antigo sem a coluna ID, ou se a nova estrutura removeu o Usuário
+            # Vamos padronizar tudo internamente para 6 colunas e preencher o faltante
+            try:
+                df.columns = ["Data/Hora", "ID", "Veículo", "Comentário", "ID_Arquivo"]
+                df["Usuário"] = "Não Informado"
+            except:
+                df.columns = ["Data/Hora", "Usuário", "Comentário", "Veículo", "ID_Arquivo"]
+                df["ID"] = "N/A"
+                
         return df
     except Exception:
         return pd.DataFrame()
@@ -91,24 +105,20 @@ def carregar_lista_logs_publicos():
 @st.cache_data
 def carregar_dados(arquivo_ou_url, colunas):
     try:
-        # Se for uma URL (Nuvem Comunitária)
         if isinstance(arquivo_ou_url, str) and arquivo_ou_url.startswith("http"):
             resposta = requests.get(arquivo_ou_url)
             resposta.raise_for_status()
             conteudo = io.StringIO(resposta.text)
             df = pd.read_csv(conteudo, sep="|", header=None, names=colunas)
-        # Se for upload local
         else:
             df = pd.read_csv(arquivo_ou_url, sep="|", header=None, names=colunas)
             
         df["RTM (s)"] = pd.to_numeric(df["RTM (s)"], errors="coerce")
         
-        # Correção das repetições de segundo
         counts = df.groupby("RTM (s)")["RTM (s)"].transform('count')
         cumcounts = df.groupby("RTM (s)").cumcount()
         df["RTM_Continuo"] = df["RTM (s)"] + (cumcounts / counts)
         
-        # Tempo no formato de relógio
         df["Tempo_Relogio"] = pd.to_datetime(df["RTM_Continuo"], unit='s')
         
         return df
@@ -124,19 +134,16 @@ with st.sidebar:
     st.markdown("---")
     
     st.header("Navegação")
-    # Botão para visualizar os gráficos
     if st.button("📊 Dashboard / Arquivo Local", use_container_width=True):
         st.session_state.view = 'dashboard'
         st.rerun()
 
-    # Botão para explorar os logs do público
     if st.button("🌐 LOG's da Comunidade", use_container_width=True):
         st.session_state.view = 'comunidade'
         st.rerun()
     
     st.markdown("---")
     
-    # Campo de upload apenas aparece na tela do Dashboard
     if st.session_state.view == 'dashboard':
         st.header("📂 Importar Log Local")
         arquivo_local = st.file_uploader("Selecione o arquivo .TXT ou .CSV", type=["txt", "csv"])
@@ -161,13 +168,15 @@ if st.session_state.view == 'comunidade':
     df_publicos = carregar_lista_logs_publicos()
     
     if not df_publicos.empty:
-        # Mostra o DataFrame permitindo seleção por clique
+        # Configurando as colunas conforme solicitado (A ordem exata é definida por column_order)
         event = st.dataframe(
             df_publicos,
+            column_order=["Data/Hora", "ID", "Usuário", "Veículo", "Comentário"],
             column_config={
-                "Data/Hora": st.column_config.TextColumn("Data do Registo"),
+                "Data/Hora": st.column_config.TextColumn("Data do Registro"),
+                "ID": st.column_config.TextColumn("ID"),
                 "Usuário": st.column_config.TextColumn("Enviado por"),
-                "Veículo": st.column_config.TextColumn("Modelo / Sistema"),
+                "Veículo": st.column_config.TextColumn("Modelo"),
                 "Comentário": st.column_config.TextColumn("Observações do Utilizador", width="large"),
                 "ID_Arquivo": None # Esconde o código interno
             },
@@ -178,17 +187,15 @@ if st.session_state.view == 'comunidade':
             height=600
         )
         
-        # Lógica: Se o usuário clicar em uma linha, extrai o ID e manda pro Dashboard
         if len(event.selection.rows) > 0:
             idx = event.selection.rows[0]
             id_arq = df_publicos.iloc[idx]['ID_Arquivo']
-            # Cria a URL direta do Drive e salva no estado
             st.session_state.log_selecionado = f"https://drive.google.com/uc?export=download&id={id_arq}"
             st.session_state.view = 'dashboard'
             st.rerun()
             
     else:
-        st.warning("Nenhum log público foi enviado para o servidor ainda.")
+        st.warning("Nenhum log público foi encontrado ou a planilha não pôde ser lida.")
 
 # ----------------------------------------------------
 # TELA 2: DASHBOARD E GRÁFICOS (Visão Principal)
@@ -202,7 +209,6 @@ elif st.session_state.view == 'dashboard':
         if df is not None and not df.empty:
             versao_dash = df["Versão_HW"].iloc[-1]
 
-            # --- Criação das Abas de Navegação ---
             aba1, aba2, aba3, aba4, aba5 = st.tabs([
                 "📊 Visão Geral", 
                 "📈 Telemetria (Gráficos)", 
@@ -211,7 +217,6 @@ elif st.session_state.view == 'dashboard':
                 "📖 Glossário"
             ])
 
-            # --- ABA 1: VISÃO GERAL ---
             with aba1:
                 st.success(f"Log carregado com sucesso! (Dashboard v{versao_dash} | {len(df)} registos)")
                 
@@ -240,7 +245,6 @@ elif st.session_state.view == 'dashboard':
                 col_c.metric("TPS Médio", f"{df['TPS (%)'].mean():.1f} %")
                 col_d.metric("MAP Médio", f"{df['MAP (kPa)'].mean():.1f} kPa")
 
-            # --- ABA 2: TELEMETRIA E GRÁFICOS ---
             with aba2:
                 colunas_analogicas = list(LIMITES_SENSORES.keys())
                 colunas_flags = [c for c in df.columns if c.startswith("Flag_")]
@@ -343,10 +347,8 @@ elif st.session_state.view == 'dashboard':
                         )
                     )
 
-                    # Corrigido aviso do container
                     st.plotly_chart(fig, width="stretch")
 
-            # --- ABA 3: DIAGNÓSTICO ---
             with aba3:
                 st.subheader("Módulo de Diagnóstico e Análise de Falhas")
                 
@@ -357,18 +359,14 @@ elif st.session_state.view == 'dashboard':
                 
                 if not erros_ativos.empty:
                     st.error("Atenção! Falhas detetadas neste percurso:")
-                    # Corrigido aviso do container
                     st.dataframe(erros_ativos.rename("Ciclos com Falha"), width="stretch")
                 else:
                     st.success("Nenhum código de falha registado na memória.")
 
-            # --- ABA 4: DADOS BRUTOS ---
             with aba4:
                 st.subheader("Tabela de Dados Brutos")
-                # Corrigido aviso do container
                 st.dataframe(df.drop(columns=["Tempo_Relogio", "RTM_Continuo"]), width="stretch", height=800)
 
-            # --- ABA 5: GLOSSÁRIO ---
             with aba5:
                 st.subheader("📖 Glossário de Parâmetros Multec 700")
                 st.markdown("Consulta rápida do significado de cada abreviação e flag gerada pela ECU.")
