@@ -102,6 +102,8 @@ with st.sidebar:
     st.markdown("*Monza / Kadett / Ipanema*")
 
 # --- Lógica Principal ---
+st.markdown("<h3 style='text-align: center; margin-top: -15px; margin-bottom: 15px;'>Visualizador de LOG's Multec 700 DashBoard 3.0</h3>", unsafe_allow_html=True)
+
 if arquivo_log is not None:
     # PASSANDO COLUNAS COMO ARGUMENTO
     df = carregar_dados(arquivo_log, COLUNAS)
