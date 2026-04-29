@@ -5,6 +5,17 @@ import plotly.express as px
 # --- Configuração Inicial da Página ---
 st.set_page_config(page_title="Multec 700 Logger Pro", layout="wide", initial_sidebar_state="expanded")
 
+# --- Otimização de Espaço (CSS Personalizado) ---
+# Remove o grande espaço em branco no topo padrão do Streamlit
+st.markdown("""
+    <style>
+        .block-container {
+            padding-top: 1.5rem;
+            padding-bottom: 1.5rem;
+        }
+    </style>
+""", unsafe_allow_html=True)
+
 # --- Mapeamento das 53 Colunas ---
 COLUNAS = [
     "RTM (s)", "RPM", "CTS (°C)", "CTS (V)", "VSS (km/h)", "TPS (%)", "TPS (V)", 
@@ -123,13 +134,14 @@ if arquivo_log is not None:
                         lambda x: ((x - x.min()) / (x.max() - x.min()) * 100) if x.max() > x.min() else 50.0
                     )
                     
-                    # Gráfico muito mais alto: height=750
-                    fig = px.line(df_melted, x='Tempo_Relogio', y='Valor_Plot', color='Sensor', height=750,
+                    # Gráfico meio termo: height=600
+                    fig = px.line(df_melted, x='Tempo_Relogio', y='Valor_Plot', color='Sensor', height=600,
                                   hover_data={'Valor_Real': True, 'Valor_Plot': False, 'Tempo_Relogio': False},
                                   title="Curvas de Desempenho (Escala Normalizada)")
                     fig.update_layout(yaxis_title="Escala (%)")
                 else:
-                    fig = px.line(df_melted, x='Tempo_Relogio', y='Valor_Real', color='Sensor', height=750,
+                    # Gráfico meio termo: height=600
+                    fig = px.line(df_melted, x='Tempo_Relogio', y='Valor_Real', color='Sensor', height=600,
                                   title="Curvas de Desempenho (Valores Absolutos)")
                     fig.update_layout(yaxis_title="Valores Reais")
                 
