@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+import requests
+import io
 
 # --- Configuração Inicial da Página ---
 st.set_page_config(page_title="Visualizador de LOG's Multec 700 DashBoard 3.0", layout="wide", initial_sidebar_state="expanded")
@@ -31,7 +33,7 @@ LIMITES_SENSORES = {
     "TPS (%)": (0, 100),
     "TPS (V)": (0.0, 5.0),
     "Bateria (V)": (8.0, 16.0),
-    "CO2 (V)": (0.0, 5.0), # Multec700 não tem sonda, o ajuste é fixo por potenciómetro
+    "CO2 (V)": (0.0, 5.0), 
     "Avanço (°)": (0, 40),
     "BPW (ms)": (0.0, 20.0),
     "MAP (V)": (0.0, 5.0),
@@ -67,11 +69,32 @@ MEMCAL_MAP = {
     9579: "MODULO 9579 - MONZA 2.0 MANUAL GAS (EXPORT. ARGENTINA)"
 }
 
-# --- Função de Carregamento e Processamento de Dados ---
-@st.cache_data
-def carregar_dados(arquivo, colunas):
+# --- NOVA FUNÇÃO: Ler Planilha de Logs Públicos ---
+@st.cache_data(ttl=60) # Atualiza a lista a cada 60 segundos
+def carregar_lista_logs_publicos():
+    sheet_id = "1dOhOKjJlnPAJNdUC2lAH9JUGzjYzuKaB-18_e1g6kdw"
+    url_planilha = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv"
     try:
-        df = pd.read_csv(arquivo, sep="|", header=None, names=colunas)
+        df = pd.read_csv(url_planilha)
+        df.columns = ["Data/Hora", "Usuário", "Comentário", "Veículo", "ID_Arquivo"]
+        return df
+    except Exception:
+        return pd.DataFrame()
+
+# --- ATUALIZAÇÃO: Carregamento aceita Arquivo Local ou URL da Nuvem ---
+@st.cache_data
+def carregar_dados(arquivo_ou_url, colunas):
+    try:
+        # Se for uma URL (Log Público)
+        if isinstance(arquivo_ou_url, str) and arquivo_ou_url.startswith("http"):
+            resposta = requests.get(arquivo_ou_url)
+            resposta.raise_for_status()
+            conteudo = io.StringIO(resposta.text)
+            df = pd.read_csv(conteudo, sep="|", header=None, names=colunas)
+        # Se for um upload local
+        else:
+            df = pd.read_csv(arquivo_ou_url, sep="|", header=None, names=colunas)
+            
         df["RTM (s)"] = pd.to_numeric(df["RTM (s)"], errors="coerce")
         
         # Correção das repetições de segundo
@@ -84,18 +107,41 @@ def carregar_dados(arquivo, colunas):
         
         return df
     except Exception as e:
-        st.error(f"Erro ao processar o arquivo: {e}")
+        st.error(f"Erro ao processar os dados: {e}")
         return None
 
-# --- Barra Lateral (Logo, Títulos e Upload) ---
+# --- Barra Lateral Dinâmica ---
 with st.sidebar:
-    # Usando a versão RAW do seu link do GitHub para a imagem aparecer diretamente
     st.image("https://raw.githubusercontent.com/mktecheletronica/site/main/logo2.png", use_container_width=True)
     st.markdown("---")
     
-    st.header("📂 Importar Log")
-    arquivo_log = st.file_uploader("Selecione o arquivo .TXT ou .CSV", type=["txt", "csv"])
+    st.header("📂 Fonte de Dados")
+    modo_entrada = st.radio("Origem do Log:", ["Meu Arquivo Local", "Nuvem Comunitária (Pública)"])
     
+    arquivo_selecionado = None
+    
+    if modo_entrada == "Meu Arquivo Local":
+        arquivo_selecionado = st.file_uploader("Selecione o arquivo .TXT ou .CSV", type=["txt", "csv"])
+    else:
+        df_publicos = carregar_lista_logs_publicos()
+        if not df_publicos.empty:
+            # Cria a lista formatada para o usuário escolher
+            opcoes = ["Selecione um log..."] + df_publicos.apply(lambda row: f"{row['Data/Hora']} - {row['Veículo']}", axis=1).tolist()
+            escolha = st.selectbox("Logs Compartilhados:", opcoes)
+            
+            if escolha != "Selecione um log...":
+                # Encontra o ID do arquivo correspondente à escolha
+                idx = opcoes.index(escolha) - 1
+                linha_selecionada = df_publicos.iloc[idx]
+                
+                st.success(f"Log selecionado: **{linha_selecionada['Usuário']}**")
+                st.info(f"💬 Comentário: {linha_selecionada['Comentário']}")
+                
+                # Gera a URL de download direto do Google Drive para o Pandas ler
+                arquivo_selecionado = f"https://drive.google.com/uc?export=download&id={linha_selecionada['ID_Arquivo']}"
+        else:
+            st.warning("Nenhum log público encontrado na planilha.")
+
     st.markdown("---")
     st.markdown("**Desenvolvido para GM EFI**")
     st.markdown("*Monza / Kadett / Ipanema*")
@@ -103,14 +149,13 @@ with st.sidebar:
 # --- Lógica Principal ---
 st.markdown("<h3 style='text-align: center; margin-top: -15px; margin-bottom: 15px;'>Visualizador de LOG's Multec 700 DashBoard 3.0</h3>", unsafe_allow_html=True)
 
-if arquivo_log is not None:
-    # PASSANDO COLUNAS COMO ARGUMENTO
-    df = carregar_dados(arquivo_log, COLUNAS)
+# Se há arquivo local (Upload) OU arquivo público (URL selecionada)
+if arquivo_selecionado is not None:
+    df = carregar_dados(arquivo_selecionado, COLUNAS)
     
     if df is not None and not df.empty:
         versao_dash = df["Versão_HW"].iloc[-1]
 
-        # --- Criação das Abas de Navegação ---
         aba1, aba2, aba3, aba4, aba5 = st.tabs([
             "📊 Visão Geral", 
             "📈 Telemetria (Gráficos)", 
@@ -119,17 +164,11 @@ if arquivo_log is not None:
             "📖 Glossário"
         ])
 
-        # ==========================================
-        # ABA 1: VISÃO GERAL
-        # ==========================================
         with aba1:
             st.success(f"Log carregado com sucesso! (Dashboard v{versao_dash} | {len(df)} registos)")
             
-            # --- Identificação do Memcal ---
             try:
-                # Pega o ID da última linha lida do arquivo
                 memcal_id = int(df["Memcal ID"].iloc[-1])
-                # Busca no dicionário ou usa o formato padrão GM se não encontrar
                 nome_modulo = MEMCAL_MAP.get(memcal_id, f"MODULO GM - ID MEMCAL: {memcal_id}")
             except:
                 nome_modulo = "Módulo Desconhecido"
@@ -153,11 +192,7 @@ if arquivo_log is not None:
             col_c.metric("TPS Médio", f"{df['TPS (%)'].mean():.1f} %")
             col_d.metric("MAP Médio", f"{df['MAP (kPa)'].mean():.1f} kPa")
 
-        # ==========================================
-        # ABA 2: TELEMETRIA E GRÁFICOS (Tudo Num Só Ecrã)
-        # ==========================================
         with aba2:
-            # --- Filtros de Seleção ---
             colunas_analogicas = list(LIMITES_SENSORES.keys())
             colunas_flags = [c for c in df.columns if c.startswith("Flag_")]
             
@@ -183,7 +218,6 @@ if arquivo_log is not None:
                 tem_analog = len(selecionados_analog) > 0
                 tem_flags = len(selecionados_flags) > 0
                 
-                # --- Processamento dos Sensores Analógicos ---
                 if tem_analog:
                     for idx, sensor in enumerate(selecionados_analog):
                         axis_name = f"y{idx + 1}"
@@ -209,7 +243,6 @@ if arquivo_log is not None:
                             fixedrange=True
                         )
 
-                # --- Processamento das Flags ---
                 if tem_flags:
                     flag_axis_idx = len(selecionados_analog) + 1 if tem_analog else 1
                     axis_name_flag = f"y{flag_axis_idx}"
@@ -242,7 +275,6 @@ if arquivo_log is not None:
                         fixedrange=True 
                     )
 
-                # --- Aplica as Configurações Gerais ---
                 fig.update_layout(
                     **layout_updates,
                     height=600, 
@@ -252,7 +284,6 @@ if arquivo_log is not None:
                     title="Gráficos do arquivo LOG"
                 )
 
-                # --- Formata o Eixo X (Tempo) e a Barra de Rolagem ---
                 fig.update_xaxes(
                     title_text="Tempo (hh:mm:ss)",
                     tickformat="%H:%M:%S",
@@ -265,9 +296,6 @@ if arquivo_log is not None:
 
                 st.plotly_chart(fig, use_container_width=True)
 
-        # ==========================================
-        # ABA 3: DIAGNÓSTICO (O Scanner)
-        # ==========================================
         with aba3:
             st.subheader("Módulo de Diagnóstico e Análise de Falhas")
             
@@ -278,20 +306,16 @@ if arquivo_log is not None:
             
             if not erros_ativos.empty:
                 st.error("Atenção! Falhas detetadas neste percurso:")
-                st.dataframe(erros_ativos.rename("Ciclos com Falha"), use_container_width=True)
+                # AVISO CORRIGIDO AQUI: width="stretch" em vez de use_container_width
+                st.dataframe(erros_ativos.rename("Ciclos com Falha"), width="stretch")
             else:
                 st.success("Nenhum código de falha registado na memória.")
 
-        # ==========================================
-        # ABA 4: DADOS BRUTOS
-        # ==========================================
         with aba4:
             st.subheader("Tabela de Dados Brutos")
-            st.dataframe(df.drop(columns=["Tempo_Relogio", "RTM_Continuo"]), use_container_width=True, height=800)
+            # AVISO CORRIGIDO AQUI: width="stretch" em vez de use_container_width
+            st.dataframe(df.drop(columns=["Tempo_Relogio", "RTM_Continuo"]), width="stretch", height=800)
 
-        # ==========================================
-        # ABA 5: GLOSSÁRIO
-        # ==========================================
         with aba5:
             st.subheader("📖 Glossário de Parâmetros Multec 700")
             st.markdown("Consulta rápida do significado de cada abreviação e flag gerada pela ECU.")
@@ -301,26 +325,26 @@ if arquivo_log is not None:
             with col_g1:
                 st.markdown("#### 🌡️ Sensores Analógicos e Medidas")
                 st.markdown("""
-                * **RTM (s):** *Run Time Motor* - Tempo de funcionamento do motor desde a última partida (em segundos).
+                * **RTM (s):** *Run Time Motor* - Tempo de funcionamento do motor desde a última partida.
                 * **RPM:** *Revolutions Per Minute* - Rotação atual do motor.
-                * **CTS (°C / V):** *Coolant Temperature Sensor* - Temperatura do líquido de arrefecimento do motor (em graus Celsius e tensão do sensor).
+                * **CTS (°C / V):** *Coolant Temperature Sensor* - Temperatura do líquido de arrefecimento.
                 * **VSS (km/h):** *Vehicle Speed Sensor* - Velocidade atual do veículo.
-                * **TPS (% / V):** *Throttle Position Sensor* - Posição da borboleta de aceleração (em porcentagem de abertura e tensão).
-                * **MAP (kPa / V):** *Manifold Absolute Pressure* - Pressão absoluta no coletor de admissão. Indica a carga do motor.
-                * **Pressão Atm (kPa / V):** Pressão atmosférica lida pelo sensor MAP antes da partida do motor.
+                * **TPS (% / V):** *Throttle Position Sensor* - Posição da borboleta de aceleração.
+                * **MAP (kPa / V):** *Manifold Absolute Pressure* - Pressão absoluta no coletor.
+                * **Pressão Atm (kPa / V):** Pressão atmosférica.
                 * **Bateria (V):** Tensão da bateria lida pela ECU.
-                * **CO2 (V):** Tensão do potenciômetro de ajuste de mistura de CO (Monza/Kadett EFI não utilizam Sonda Lambda, e sim este ajuste fixo).
+                * **CO2 (V):** Tensão do potenciômetro de ajuste de mistura de CO.
                 """)
 
                 st.markdown("#### ⚙️ Parâmetros Calculados / Atuadores")
                 st.markdown("""
-                * **Avanço (°):** Ponto de ignição calculado pela ECU (Avanço em graus).
-                * **BPW (ms):** *Base Pulse Width* - Largura base do pulso de injeção (Tempo de Injeção em milissegundos).
-                * **AFR Partida / Atual:** *Air Fuel Ratio* - Relação Ar/Combustível comandada pela ECU.
-                * **IAC (Passos):** *Idle Air Control* - Posição do motor de passo da marcha lenta.
-                * **Marcha Lenta Ideal:** Rotação alvo que a ECU está a tentar manter na marcha lenta.
-                * **TBRP:** *Time Between Reference Pulses* - Tempo decorrido entre os pulsos de referência da ignição.
-                * **Memcal ID:** Identificação gravada na memória de calibração (EPROM) da ECU.
+                * **Avanço (°):** Ponto de ignição calculado pela ECU.
+                * **BPW (ms):** *Base Pulse Width* - Largura base do pulso de injeção.
+                * **AFR Partida / Atual:** *Air Fuel Ratio* - Relação Ar/Combustível.
+                * **IAC (Passos):** *Idle Air Control* - Posição do motor de passo.
+                * **Marcha Lenta Ideal:** Rotação alvo.
+                * **TBRP:** *Time Between Reference Pulses* - Tempo entre os pulsos da ignição.
+                * **Memcal ID:** Identificação gravada na memória de calibração.
                 """)
 
             with col_g2:
@@ -328,27 +352,27 @@ if arquivo_log is not None:
                 st.markdown("""
                 * **Flag_RAQ:** Aquecimento do Coletor ativado.
                 * **Flag_ACC:** Embreagem do Ar Condicionado acoplada.
-                * **Flag_BCE:** *By Pass Check Enable* - Controle de desvio (avanço) ativado.
+                * **Flag_BCE:** Controle de desvio (avanço) ativado.
                 * **Flag_CAC:** Ciclagem do Ar Condicionado.
-                * **Flag_Fan1 / Fan2:** Eletroventilador (Ventoinha) velocidade 1 ou 2 ligado.
+                * **Flag_Fan1 / Fan2:** Eletroventilador ligado.
                 * **Flag_RPF:** Relé de Partida a Frio acionado.
                 * **Flag_ShiftLight:** Luz indicadora para troca de marcha ativada.
-                * **Flag_ISV:** Interruptor de Solicitação da Ventoinha (Ar Condicionado).
-                * **Flag_Falha_Ativa:** Indica se existe algum código de falha (DTC) presente no momento.
-                * **Flag_TPS_IDLE:** Borboleta totalmente fechada (Modo Marcha Lenta).
-                * **Flag_Clear_Flood:** Modo de desafogamento do motor (Pedal a 100% durante a partida).
-                * **Flag_Park_Drive:** Status do seletor de marchas (Para veículos automáticos).
-                * **Flag_CutOff:** Corte de injeção em desaceleração ativado (Economia de combustível).
-                * **Flag_Motor_ON:** Confirmação de que a ECU considera o motor em funcionamento.
+                * **Flag_ISV:** Interruptor de Solicitação da Ventoinha.
+                * **Flag_Falha_Ativa:** Indica se existe algum código de falha ativo.
+                * **Flag_TPS_IDLE:** Borboleta totalmente fechada.
+                * **Flag_Clear_Flood:** Modo de desafogamento do motor.
+                * **Flag_Park_Drive:** Status do seletor de marchas.
+                * **Flag_CutOff:** Corte de injeção em desaceleração ativado.
+                * **Flag_Motor_ON:** Confirmação do motor em funcionamento.
                 * **Flag_Em_Movimento:** Confirmação de que o veículo possui velocidade > 0.
                 """)
                 
                 st.markdown("#### ⚠️ Códigos de Erro (DTCs)")
                 st.markdown("""
-                * **Err 14/15:** Falha no Sensor de Temperatura (CTS) - Tensão Alta/Baixa.
-                * **Err 21/22:** Falha no Sensor da Borboleta (TPS) - Tensão Alta/Baixa.
+                * **Err 14/15:** Falha no Sensor de Temperatura (CTS).
+                * **Err 21/22:** Falha no Sensor da Borboleta (TPS).
                 * **Err 24:** Falha no Sensor de Velocidade (VSS).
-                * **Err 33/34:** Falha no Sensor de Pressão (MAP) - Tensão Alta/Baixa.
+                * **Err 33/34:** Falha no Sensor de Pressão (MAP).
                 * **Err 35:** Falha no controle de Marcha Lenta (IAC).
                 * **Err 42:** Falha no circuito do Módulo de Ignição (HEI).
                 * **Err 51:** Falha/Defeito no Memcal (EPROM).
@@ -356,4 +380,4 @@ if arquivo_log is not None:
                 """)
 
 else:
-    st.info("👈 Por favor, carregue o arquivo de log (Multec700_.TXT) no menu lateral esquerdo.")
+    st.info("👈 Selecione o seu arquivo local ou explore os Logs Compartilhados no menu lateral esquerdo.")
