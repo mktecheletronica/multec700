@@ -146,8 +146,8 @@ with st.sidebar:
     st.markdown("---")
     
     if st.session_state.view == 'dashboard':
-        st.header("📂 Importar Log Local")
-        arquivo_local = st.file_uploader("Selecione o arquivo .TXT ou .CSV", type=["txt", "csv"])
+        st.header("📂 Enviar Arquivo Log")
+        arquivo_local = st.file_uploader("Selecione o arquivo .TXT", type=["txt"])
         if arquivo_local:
             st.session_state.log_selecionado = arquivo_local
 
