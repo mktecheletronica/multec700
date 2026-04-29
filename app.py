@@ -22,7 +22,7 @@ COLUNAS = [
     "Versão_HW"
 ]
 
-# --- Configuração dos Limites (Min/Max) Exatos (Fornecidos por si) ---
+# --- Configuração dos Limites (Min/Max) Exatos ---
 LIMITES_SENSORES = {
     "RPM": (0, 6800),
     "CTS (°C)": (0, 120),
@@ -45,9 +45,29 @@ LIMITES_SENSORES = {
     "Consumo_Inst (L/h)": (0.0, 20.0),
 }
 
+# --- Dicionário de Identificação do Memcal ---
+MEMCAL_MAP = {
+    3659: "MODULO APZJ 16133659 - MONZA 1.8 MANUAL GAS",
+    3679: "MODULO APZL 16133679 - MONZA 1.8 MANUAL ALC",
+    7939: "MODULO ARXC 16137939 - KADETT 1.8 MANUAL GAS",
+    1049: "MODULO BCAM 16181049 - KADETT 2.0 MANUAL GAS",
+    7959: "MODULO ARXF 16137959 - KADETT 1.8 MANUAL ALC",
+    8699: "MODULO AWXW 16158699 - KADETT 1.8 AUTOM. GAS",
+    3469: "MODULO BFXJ 16193469 - KADETT/IPANEMA 2.0 AUT. GAS",
+    3709: "MODULO APZP 16133709 - MONZA 2.0 AUTOM. GAS",
+    6009: "MODULO AYMN 16166009 - MONZA 2.0 MANUAL ALC",
+    7409: "MODULO BBAA 16177409 - MONZA 1.8 MANUAL ALC",
+    7399: "MODULO BAZZ 16177399 - KADETT 1.8 MANUAL ALC",
+    3699: "MODULO AYBC 16133699 - MONZA 2.0 MANUAL GAS",
+    3719: "MODULO AYBD 16133719 - MONZA 2.0 MANUAL ALC",
+    5999: "MODULO AYMM 16165999 - MONZA/KADETT 2.0 MANUAL GAS",
+    7419: "MODULO BBAB 16177419 - MONZA/KADETT 2.0 MANUAL ALC",
+    2949: "MODULO BKSY 16202949 - MONZA/KADETT 1.8 MANUAL GAS",
+    2829: "MODULO BKSJ 16202829 - MONZA/KADETT 2.0 MANUAL GAS",
+    9579: "MODULO 9579 - MONZA 2.0 MANUAL GAS (EXPORT. ARGENTINA)"
+}
 
 # --- Função de Carregamento e Processamento de Dados ---
-# ADICIONADO: O parâmetro 'colunas' força o cache a reiniciar se os nomes mudarem
 @st.cache_data
 def carregar_dados(arquivo, colunas):
     try:
@@ -103,6 +123,18 @@ if arquivo_log is not None:
         # ==========================================
         with aba1:
             st.success(f"Log carregado com sucesso! (Dashboard v{versao_dash} | {len(df)} registos)")
+            
+            # --- Identificação do Memcal ---
+            try:
+                # Pega o ID da última linha lida do arquivo
+                memcal_id = int(df["Memcal ID"].iloc[-1])
+                # Busca no dicionário ou usa o formato padrão GM se não encontrar
+                nome_modulo = MEMCAL_MAP.get(memcal_id, f"MODULO GM - ID MEMCAL: {memcal_id}")
+            except:
+                nome_modulo = "Módulo Desconhecido"
+                
+            st.info(f"🧠 **Módulo Identificado:** {nome_modulo}")
+            
             st.subheader("Resumo do Percurso")
             col1, col2, col3, col4, col5 = st.columns(5)
             
@@ -320,7 +352,7 @@ if arquivo_log is not None:
                 * **Flag_ISV:** Interruptor de Solicitação da Ventoinha (Ar Condicionado).
                 * **Flag_Falha_Ativa:** Indica se existe algum código de falha (DTC) presente no momento.
                 * **Flag_TPS_IDLE:** Borboleta totalmente fechada (Modo Marcha Lenta).
-                * **Flag_Clear_Flood:** Modo de desabafogamento do motor (Pedal a 100% durante a partida).
+                * **Flag_Clear_Flood:** Modo de desafogamento do motor (Pedal a 100% durante a partida).
                 * **Flag_Park_Drive:** Status do seletor de marchas (Para veículos automáticos).
                 * **Flag_CutOff:** Corte de injeção em desaceleração ativado (Economia de combustível).
                 * **Flag_Motor_ON:** Confirmação de que a ECU considera o motor em funcionamento.
