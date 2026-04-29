@@ -116,7 +116,7 @@ if arquivo_log is not None:
         # ABA 2: TELEMETRIA E GRÁFICOS (Escalas Independentes + Flags Analisador Lógico)
         # ==========================================
         with aba2:
-            st.markdown("Dica: Selecione os sensores e as *flags*. As *flags* aparecerão na parte inferior do gráfico.")
+            st.markdown("Dica: Selecione os sensores e as *flags*. As *flags* aparecerão na parte inferior do gráfico (Apenas quando ativas).")
             
             # --- Filtros de Seleção ---
             colunas_analogicas = list(LIMITES_SENSORES.keys())
@@ -182,7 +182,7 @@ if arquivo_log is not None:
                             domain=domain_analog # Confina à zona designada
                         )
 
-                # --- Processamento das Flags (Estilo Analisador Lógico - Sem Offset) ---
+                # --- Processamento das Flags (Estilo Eventos - Ocultando Nível 0) ---
                 if tem_flags:
                     # Determina um ID de eixo livre para alojar as flags
                     flag_axis_idx = len(selecionados_analog) + 1 if tem_analog else 1
@@ -192,8 +192,9 @@ if arquivo_log is not None:
                     for f_idx, flag in enumerate(selecionados_flags):
                         cor_idx = (len(selecionados_analog) + f_idx) % len(cores)
                         
-                        # Sem desvio matemático: Nível 0 é 0, Nível 1 é 1 para todas as flags
-                        y_plot = df[flag]
+                        # Mágica aqui: Se é 0 vira None (quebra a linha visualmente)
+                        # Se é 1, vira 0.5 (desenha exatamente no meio da escala)
+                        y_plot = df[flag].apply(lambda x: 0.5 if x == 1 else None)
                         
                         fig.add_trace(
                             go.Scatter(
@@ -201,8 +202,8 @@ if arquivo_log is not None:
                                 y=y_plot, 
                                 name=flag,
                                 mode='lines',
-                                line_shape='hv', # Traça em formato de degrau (quadrado)
-                                line=dict(color=cores[cor_idx], width=2), # Linha ligeiramente mais grossa
+                                line=dict(color=cores[cor_idx], width=3), # Linha horizontal destacada
+                                connectgaps=False, # Impede que o Plotly ligue os pontos ignorando o None
                                 customdata=df[flag], 
                                 hovertemplate=f"<b>{flag}</b>: %{{customdata}}<extra></extra>",
                                 yaxis=axis_name_flag 
@@ -211,7 +212,7 @@ if arquivo_log is not None:
                     
                     # Configura o Eixo Matemático das Flags
                     layout_updates[axis_key_flag] = dict(
-                        range=[-0.1, 1.2], # Escala rigorosa de 0 a 1 com margem de segurança visual
+                        range=[0, 1], # Como o plot ativo é 0.5, ele vai aparecer 100% centrado!
                         overlaying="y" if tem_analog else None, 
                         visible=False,            
                         fixedrange=False,
