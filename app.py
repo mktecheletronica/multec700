@@ -113,20 +113,19 @@ if arquivo_log is not None:
             col_d.metric("MAP Médio", f"{df['MAP (kPa)'].mean():.1f} kPa")
 
         # ==========================================
-        # ABA 2: TELEMETRIA E GRÁFICOS (Escalas Independentes + Flags Analisador Lógico)
+        # ABA 2: TELEMETRIA E GRÁFICOS (Tudo Num Só Ecrã)
         # ==========================================
         with aba2:
-            st.markdown("Dica: Selecione os sensores e as *flags*. As *flags* aparecerão na parte inferior do gráfico.")
+            st.markdown("Dica: Selecione os sensores e as *flags*. Tudo será sobreposto num único ecrã. As *flags* assumem altura de 50%.")
             
             # --- Filtros de Seleção ---
             colunas_analogicas = list(LIMITES_SENSORES.keys())
-            # Filtra todas as colunas que começam por "Flag_"
             colunas_flags = [c for c in df.columns if c.startswith("Flag_")]
             
             col_sel1, col_sel2 = st.columns(2)
             with col_sel1:
                 selecionados_analog = st.multiselect(
-                    "Sensores Analógicos (0 a Max):", 
+                    "Sensores Analógicos (Escala Max):", 
                     options=colunas_analogicas, 
                     default=["RPM", "MAP (kPa)", "Bateria (V)"]
                 )
@@ -142,18 +141,8 @@ if arquivo_log is not None:
                 cores = px.colors.qualitative.Plotly
                 layout_updates = {}
                 
-                # --- Definição das Zonas do Ecrã (Domínios) ---
                 tem_analog = len(selecionados_analog) > 0
                 tem_flags = len(selecionados_flags) > 0
-                
-                if tem_analog and tem_flags:
-                    # Se tiver ambos, divide o ecrã (analógicos acima, flags no rodapé com espaço entre eles)
-                    domain_analog = [0.25, 1.0]
-                    domain_flags = [0.0, 0.20]
-                elif tem_analog:
-                    domain_analog = [0.0, 1.0]
-                elif tem_flags:
-                    domain_flags = [0.0, 1.0]
                 
                 # --- Processamento dos Sensores Analógicos ---
                 if tem_analog:
@@ -176,15 +165,14 @@ if arquivo_log is not None:
                         
                         layout_updates[axis_key] = dict(
                             range=[vmin, vmax],       
-                            overlaying="y" if idx > 0 else None, 
+                            overlaying="y" if idx > 0 else None, # Sobrepõe tudo na mesma área do gráfico
                             visible=False,            
-                            fixedrange=False,
-                            domain=domain_analog # Confina à zona designada
+                            fixedrange=False
                         )
 
-                # --- Processamento das Flags (Estilo Analisador Lógico - Mantendo Linhas Verticais) ---
+                # --- Processamento das Flags (Estilo Analisador Unificado) ---
                 if tem_flags:
-                    # Determina um ID de eixo livre para alojar as flags
+                    # Usa um eixo livre depois dos analógicos
                     flag_axis_idx = len(selecionados_analog) + 1 if tem_analog else 1
                     axis_name_flag = f"y{flag_axis_idx}"
                     axis_key_flag = f"yaxis{flag_axis_idx}"
@@ -192,8 +180,7 @@ if arquivo_log is not None:
                     for f_idx, flag in enumerate(selecionados_flags):
                         cor_idx = (len(selecionados_analog) + f_idx) % len(cores)
                         
-                        # Garantimos que os valores da flag são lidos corretamente como números (0 ou 1)
-                        # Multiplicamos por 0.5 para o nível 1 ficar visualmente a meia altura.
+                        # Converte a Flag para números (0 ou 1) e multiplica por 0.5 (Nível 1 fica a 50%)
                         valores_numericos = pd.to_numeric(df[flag], errors='coerce').fillna(0)
                         y_plot = valores_numericos * 0.5
                         
@@ -203,7 +190,7 @@ if arquivo_log is not None:
                                 y=y_plot, 
                                 name=flag,
                                 mode='lines',
-                                line_shape='hv', # Traça em formato de degrau mantendo as verticais
+                                line_shape='hv', # Mantém as linhas verticais para identificar os acionamentos
                                 line=dict(color=cores[cor_idx], width=2),
                                 customdata=df[flag], 
                                 hovertemplate=f"<b>{flag}</b>: %{{customdata}}<extra></extra>",
@@ -211,23 +198,22 @@ if arquivo_log is not None:
                             )
                         )
                     
-                    # Configura o Eixo Matemático das Flags
+                    # O Eixo das Flags agora partilha 100% da área do ecrã com os outros sensores
                     layout_updates[axis_key_flag] = dict(
-                        range=[-0.1, 1.1], # Margem extra garante que o nível 0 nunca é cortado visualmente
-                        overlaying=None, # Correção Crítica: Sem overlaying para respeitar totalmente o 'domain' inferior
+                        range=[0.0, 1.0], # 0.0 fica disfarçado na borda inferior do ecrã, 0.5 sobe até ao meio
+                        overlaying="y" if tem_analog else None, # Isto garante a sobreposição correta
                         visible=False,            
-                        fixedrange=False,
-                        domain=domain_flags # Confina à zona da base do ecrã separada do gráfico analógico
+                        fixedrange=False
                     )
 
                 # --- Aplica as Configurações Gerais ---
                 fig.update_layout(
                     **layout_updates,
-                    height=700, 
+                    height=600, 
                     hovermode="x unified",
                     template="plotly_dark",
                     margin=dict(l=20, r=20, t=50, b=20),
-                    title="Análise de Telemetria"
+                    title="Análise de Telemetria Unificada"
                 )
 
                 # --- Formata o Eixo X (Tempo) e a Barra de Rolagem ---
