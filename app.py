@@ -169,7 +169,7 @@ if arquivo_log is not None:
                             range=[vmin, vmax],       
                             overlaying="y" if idx > 0 else None, # Sobrepõe tudo na mesma área do gráfico
                             visible=False,            
-                            fixedrange=False
+                            fixedrange=True # <- BLOQUEIA ZOOM/AUTOSCALE VERTICAL (Fixa a escala independente)
                         )
 
                 # --- Processamento das Flags (Estilo Analisador Unificado) ---
@@ -205,7 +205,7 @@ if arquivo_log is not None:
                         range=[0.0, 1.0], # 0.0 fica disfarçado na borda inferior do ecrã, 0.5 sobe até ao meio
                         overlaying="y" if tem_analog else None, # Isto garante a sobreposição correta
                         visible=False,            
-                        fixedrange=False
+                        fixedrange=True # <- BLOQUEIA ZOOM/AUTOSCALE VERTICAL (Fixa a escala independente)
                     )
 
                 # --- Aplica as Configurações Gerais ---
