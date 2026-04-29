@@ -127,7 +127,7 @@ if arquivo_log is not None:
             col_sel1, col_sel2 = st.columns(2)
             with col_sel1:
                 selecionados_analog = st.multiselect(
-                    "Sensores Analógicos (Escala Max):", 
+                    "Sensores Analógicos:", 
                     options=colunas_analogicas, 
                     default=["RPM", "MAP (kPa)", "Bateria (V)"]
                 )
@@ -135,7 +135,7 @@ if arquivo_log is not None:
                 selecionados_flags = st.multiselect(
                     "Sinais Digitais / Flags (ON/OFF):", 
                     options=colunas_flags, 
-                    default=["Flag_TPS_IDLE", "Flag_Motor_ON"]
+                    default=["Flag_FAN1", "Flag_FAN2"]
                 )
 
             if selecionados_analog or selecionados_flags:
