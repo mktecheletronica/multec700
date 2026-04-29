@@ -3,7 +3,7 @@ import pandas as pd
 import plotly.express as px
 
 # --- Configuração Inicial da Página ---
-st.set_page_config(page_title="Multec 700 Logger Pro", layout="wide")
+st.set_page_config(page_title="Multec 700 Logger Pro", layout="wide", initial_sidebar_state="expanded")
 
 # --- Mapeamento das 53 Colunas ---
 COLUNAS = [
@@ -27,18 +27,34 @@ def carregar_dados(arquivo):
     try:
         df = pd.read_csv(arquivo, sep="|", header=None, names=COLUNAS)
         df["RTM (s)"] = pd.to_numeric(df["RTM (s)"], errors="coerce")
+        
+        # --- CORREÇÃO DOS "PULSOS DIGITAIS" (Amostras Múltiplas por Segundo) ---
+        # Conta quantas vezes cada "segundo inteiro" se repete
+        counts = df.groupby("RTM (s)")["RTM (s)"].transform('count')
+        # Numera as repetições (0, 1, 2...)
+        cumcounts = df.groupby("RTM (s)").cumcount()
+        # Adiciona frações de segundo para distribuir as amostras (ex: 1585.0, 1585.33, 1585.66)
+        df["RTM_Continuo"] = df["RTM (s)"] + (cumcounts / counts)
+        
+        # --- CONVERSÃO PARA TEMPO REAL (HH:MM:SS) ---
+        # Converte para um formato datetime base para o Plotly exibir como relógio
+        df["Tempo_Relogio"] = pd.to_datetime(df["RTM_Continuo"], unit='s')
+        
         return df
     except Exception as e:
         st.error(f"Erro ao processar o arquivo: {e}")
         return None
 
-# --- Cabeçalho do App ---
-st.title("Analisador de Telemetria - Multec 700 DashBoard 3.0")
-st.markdown("#### *by MKTECH ELETRÔNICA*")
-st.markdown("---")
-
-# --- Barra Lateral (Upload de Arquivo) ---
+# --- Barra Lateral (Logo, Títulos e Upload) ---
 with st.sidebar:
+    # Espaço reservado para o seu logotipo futuro
+    # st.image("caminho/para/seu/logo.png", use_column_width=True)
+    
+    st.markdown("### Analisador de Telemetria")
+    st.markdown("##### Multec 700 DashBoard 3.0")
+    st.markdown("<small><i>by MKTECH ELETRÔNICA</i></small>", unsafe_allow_html=True)
+    st.markdown("---")
+    
     st.header("📂 Importar Log")
     arquivo_log = st.file_uploader("Selecione o arquivo .TXT ou .CSV", type=["txt", "csv"])
     
@@ -82,35 +98,38 @@ if arquivo_log is not None:
         # ABA 2: TELEMETRIA E GRÁFICOS
         # ==========================================
         with aba2:
-            st.subheader("Análise Gráfica Personalizada")
-            
             colunas_analogicas = [c for c in COLUNAS if not c.startswith("Flag_") and not c.startswith("Err_") and c not in ["RTM (s)", "Versão_HW"]]
             
-            selecionados = st.multiselect(
-                "Sensores para visualização:", 
-                options=colunas_analogicas, 
-                default=["RPM", "TPS (%)", "MAP (kPa)", "CTS (°C)"]
-            )
-            
-            normalizar = st.checkbox("Normalizar Escalas (0-100%)", value=True, 
-                                     help="Ajusta todas as curvas para a mesma altura (constrain min-max), facilitando a comparação entre valores muito diferentes (ex: Bateria vs RPM).")
+            # Controles em colunas para ocupar menos espaço
+            col_ctrl1, col_ctrl2 = st.columns([3, 1])
+            with col_ctrl1:
+                selecionados = st.multiselect(
+                    "Sensores para visualização:", 
+                    options=colunas_analogicas, 
+                    default=["RPM", "TPS (%)", "MAP (kPa)", "CTS (°C)"]
+                )
+            with col_ctrl2:
+                st.write("") # Espaçamento
+                st.write("") 
+                normalizar = st.checkbox("Normalizar Escalas (0-100%)", value=True, 
+                                         help="Ajusta todas as curvas para a mesma altura, facilitando a comparação entre valores.")
 
             if selecionados:
-                # Transforma os dados para o formato longo (melt) facilitando as customizações de cada linha
-                df_melted = df.melt(id_vars=['RTM (s)'], value_vars=selecionados, var_name='Sensor', value_name='Valor_Real')
+                # Transformando os dados, trazendo a nova coluna Tempo_Relogio para o eixo X
+                df_melted = df.melt(id_vars=['Tempo_Relogio', 'RTM_Continuo'], value_vars=selecionados, var_name='Sensor', value_name='Valor_Real')
 
                 if normalizar:
-                    # Aplica a fórmula de normalização min-max (o seu "constrain")
                     df_melted['Valor_Plot'] = df_melted.groupby('Sensor')['Valor_Real'].transform(
                         lambda x: ((x - x.min()) / (x.max() - x.min()) * 100) if x.max() > x.min() else 50.0
                     )
                     
-                    fig = px.line(df_melted, x='RTM (s)', y='Valor_Plot', color='Sensor',
-                                  hover_data={'Valor_Real': True, 'Valor_Plot': False, 'RTM (s)': True},
+                    # Gráfico muito mais alto: height=750
+                    fig = px.line(df_melted, x='Tempo_Relogio', y='Valor_Plot', color='Sensor', height=750,
+                                  hover_data={'Valor_Real': True, 'Valor_Plot': False, 'Tempo_Relogio': False},
                                   title="Curvas de Desempenho (Escala Normalizada)")
                     fig.update_layout(yaxis_title="Escala (%)")
                 else:
-                    fig = px.line(df_melted, x='RTM (s)', y='Valor_Real', color='Sensor',
+                    fig = px.line(df_melted, x='Tempo_Relogio', y='Valor_Real', color='Sensor', height=750,
                                   title="Curvas de Desempenho (Valores Absolutos)")
                     fig.update_layout(yaxis_title="Valores Reais")
                 
@@ -119,11 +138,16 @@ if arquivo_log is not None:
                     hovermode="x unified", 
                     template="plotly_dark",
                     legend_title_text="Sensores",
-                    xaxis_title="Tempo de Funcionamento (s)"
+                    xaxis_title="Tempo de Funcionamento (hh:mm:ss)",
+                    margin=dict(l=20, r=20, t=50, b=20) # Reduz as margens vazias
                 )
                 
-                # ADICIONA A BARRA DE ROLAGEM / ZOOM INFERIOR
-                fig.update_xaxes(rangeslider_visible=True)
+                # Barra de Rolagem e Formatação do tempo em formato Relógio
+                fig.update_xaxes(
+                    rangeslider_visible=True,
+                    tickformat="%H:%M:%S",  # Força o eixo X a exibir hh:mm:ss
+                    hoverformat="%H:%M:%S.%L" # Ao passar o mouse, exibe os milissegundos
+                )
                 
                 st.plotly_chart(fig, use_container_width=True)
 
@@ -166,7 +190,9 @@ if arquivo_log is not None:
         # ==========================================
         with aba4:
             st.subheader("Tabela de Dados Brutos")
-            st.dataframe(df, use_container_width=True)
+            # Adiciona a coluna calculada para você conferir como o tempo ficou
+            st.dataframe(df.drop(columns=["Tempo_Relogio", "RTM_Continuo"]), use_container_width=True)
 
 else:
-    st.info("👈 Faça o upload do arquivo de log (.TXT ou .CSV) na barra lateral para começar.")
+    # Tela vazia, esperando arquivo, agora com um layout mais limpo
+    st.info("👈 Por favor, carregue seu arquivo de log (.TXT ou .CSV) no menu lateral esquerdo.")
