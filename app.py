@@ -90,7 +90,13 @@ if arquivo_log is not None:
         versao_dash = df["Versão_HW"].iloc[-1]
 
         # --- Criação das Abas de Navegação ---
-        aba1, aba2, aba3, aba4 = st.tabs(["📊 Visão Geral", "📈 Telemetria (Gráficos)", "⚠️ Diagnóstico (Scanner)", "📋 Dados Brutos"])
+        aba1, aba2, aba3, aba4, aba5 = st.tabs([
+            "📊 Visão Geral", 
+            "📈 Telemetria (Gráficos)", 
+            "⚠️ Diagnóstico (Scanner)", 
+            "📋 Dados Brutos",
+            "📖 Glossário"
+        ])
 
         # ==========================================
         # ABA 1: VISÃO GERAL
@@ -118,8 +124,6 @@ if arquivo_log is not None:
         # ABA 2: TELEMETRIA E GRÁFICOS (Tudo Num Só Ecrã)
         # ==========================================
         with aba2:
-            #st.markdown("Dica: Selecione os sensores e as *flags*. Tudo será sobreposto num único ecrã. As *flags* assumem altura de 50%.")
-            
             # --- Filtros de Seleção ---
             colunas_analogicas = list(LIMITES_SENSORES.keys())
             colunas_flags = [c for c in df.columns if c.startswith("Flag_")]
@@ -135,7 +139,7 @@ if arquivo_log is not None:
                 selecionados_flags = st.multiselect(
                     "Sinais Digitais / Flags (ON/OFF):", 
                     options=colunas_flags, 
-                    default=["Flag_Fan1", "Flag_Fan2"] # <- CORRIGIDO: Maiúsculas/minúsculas iguais à lista COLUNAS
+                    default=["Flag_Fan1", "Flag_Fan2"]
                 )
 
             if selecionados_analog or selecionados_flags:
@@ -167,14 +171,13 @@ if arquivo_log is not None:
                         
                         layout_updates[axis_key] = dict(
                             range=[vmin, vmax],       
-                            overlaying="y" if idx > 0 else None, # Sobrepõe tudo na mesma área do gráfico
+                            overlaying="y" if idx > 0 else None, 
                             visible=False,            
-                            fixedrange=True # <- BLOQUEIA ZOOM/AUTOSCALE VERTICAL (Fixa a escala independente)
+                            fixedrange=True
                         )
 
-                # --- Processamento das Flags (Estilo Analisador Unificado) ---
+                # --- Processamento das Flags ---
                 if tem_flags:
-                    # Usa um eixo livre depois dos analógicos
                     flag_axis_idx = len(selecionados_analog) + 1 if tem_analog else 1
                     axis_name_flag = f"y{flag_axis_idx}"
                     axis_key_flag = f"yaxis{flag_axis_idx}"
@@ -182,7 +185,6 @@ if arquivo_log is not None:
                     for f_idx, flag in enumerate(selecionados_flags):
                         cor_idx = (len(selecionados_analog) + f_idx) % len(cores)
                         
-                        # Converte a Flag para números (0 ou 1) e multiplica por 0.5 (Nível 1 fica a 50%)
                         valores_numericos = pd.to_numeric(df[flag], errors='coerce').fillna(0)
                         y_plot = valores_numericos * 0.5
                         
@@ -192,7 +194,7 @@ if arquivo_log is not None:
                                 y=y_plot, 
                                 name=flag,
                                 mode='lines',
-                                line_shape='hv', # Mantém as linhas verticais para identificar os acionamentos
+                                line_shape='hv', 
                                 line=dict(color=cores[cor_idx], width=2),
                                 customdata=df[flag], 
                                 hovertemplate=f"<b>{flag}</b>: %{{customdata}}<extra></extra>",
@@ -200,12 +202,11 @@ if arquivo_log is not None:
                             )
                         )
                     
-                    # O Eixo das Flags agora partilha 100% da área do ecrã com os outros sensores
                     layout_updates[axis_key_flag] = dict(
-                        range=[0.0, 1.0], # 0.0 fica disfarçado na borda inferior do ecrã, 0.5 sobe até ao meio
-                        overlaying="y" if tem_analog else None, # Isto garante a sobreposição correta
+                        range=[0.0, 1.0], 
+                        overlaying="y" if tem_analog else None, 
                         visible=False,            
-                        fixedrange=True # <- BLOQUEIA ZOOM/AUTOSCALE VERTICAL (Fixa a escala independente)
+                        fixedrange=True 
                     )
 
                 # --- Aplica as Configurações Gerais ---
@@ -271,6 +272,72 @@ if arquivo_log is not None:
         with aba4:
             st.subheader("Tabela de Dados Brutos")
             st.dataframe(df.drop(columns=["Tempo_Relogio", "RTM_Continuo"]), use_container_width=True)
+
+        # ==========================================
+        # ABA 5: GLOSSÁRIO
+        # ==========================================
+        with aba5:
+            st.subheader("📖 Glossário de Parâmetros Multec 700")
+            st.markdown("Consulta rápida do significado de cada abreviação e flag gerada pela ECU.")
+            
+            col_g1, col_g2 = st.columns(2)
+            
+            with col_g1:
+                st.markdown("#### 🌡️ Sensores Analógicos e Medidas")
+                st.markdown("""
+                * **RTM (s):** *Run Time Motor* - Tempo de funcionamento do motor desde a última partida (em segundos).
+                * **RPM:** *Revolutions Per Minute* - Rotação atual do motor.
+                * **CTS (°C / V):** *Coolant Temperature Sensor* - Temperatura do líquido de arrefecimento do motor (em graus Celsius e tensão do sensor).
+                * **VSS (km/h):** *Vehicle Speed Sensor* - Velocidade atual do veículo.
+                * **TPS (% / V):** *Throttle Position Sensor* - Posição da borboleta de aceleração (em porcentagem de abertura e tensão).
+                * **MAP (kPa / V):** *Manifold Absolute Pressure* - Pressão absoluta no coletor de admissão. Indica a carga do motor.
+                * **Pressão Atm (kPa / V):** Pressão atmosférica lida pelo sensor MAP antes da partida do motor.
+                * **Bateria (V):** Tensão da bateria lida pela ECU.
+                * **CO2 (V):** Tensão do potenciômetro de ajuste de mistura de CO (Monza/Kadett EFI não utilizam Sonda Lambda, e sim este ajuste fixo).
+                """)
+
+                st.markdown("#### ⚙️ Parâmetros Calculados / Atuadores")
+                st.markdown("""
+                * **Avanço (°):** Ponto de ignição calculado pela ECU (Avanço em graus).
+                * **BPW (ms):** *Base Pulse Width* - Largura base do pulso de injeção (Tempo de Injeção em milissegundos).
+                * **AFR Partida / Atual:** *Air Fuel Ratio* - Relação Ar/Combustível comandada pela ECU.
+                * **IAC (Passos):** *Idle Air Control* - Posição do motor de passo da marcha lenta.
+                * **Marcha Lenta Ideal:** Rotação alvo que a ECU está a tentar manter na marcha lenta.
+                * **TBRP:** *Time Between Reference Pulses* - Tempo decorrido entre os pulsos de referência da ignição.
+                * **Memcal ID:** Identificação gravada na memória de calibração (EPROM) da ECU.
+                """)
+
+            with col_g2:
+                st.markdown("#### 🚩 Flags (Sinais Digitais e Status)")
+                st.markdown("""
+                * **Flag_RAQ:** Aquecimento do Coletor ativado.
+                * **Flag_ACC:** Embreagem do Ar Condicionado acoplada.
+                * **Flag_BCE:** *By Pass Check Enable* - Controle de desvio (avanço) ativado.
+                * **Flag_CAC:** Ciclagem do Ar Condicionado.
+                * **Flag_Fan1 / Fan2:** Eletroventilador (Ventoinha) velocidade 1 ou 2 ligado.
+                * **Flag_RPF:** Relé de Partida a Frio acionado.
+                * **Flag_ShiftLight:** Luz indicadora para troca de marcha ativada.
+                * **Flag_ISV:** Interruptor de Solicitação da Ventoinha (Ar Condicionado).
+                * **Flag_Falha_Ativa:** Indica se existe algum código de falha (DTC) presente no momento.
+                * **Flag_TPS_IDLE:** Borboleta totalmente fechada (Modo Marcha Lenta).
+                * **Flag_Clear_Flood:** Modo de desabafogamento do motor (Pedal a 100% durante a partida).
+                * **Flag_Park_Drive:** Status do seletor de marchas (Para veículos automáticos).
+                * **Flag_CutOff:** Corte de injeção em desaceleração ativado (Economia de combustível).
+                * **Flag_Motor_ON:** Confirmação de que a ECU considera o motor em funcionamento.
+                * **Flag_Em_Movimento:** Confirmação de que o veículo possui velocidade > 0.
+                """)
+                
+                st.markdown("#### ⚠️ Códigos de Erro (DTCs)")
+                st.markdown("""
+                * **Err 14/15:** Falha no Sensor de Temperatura (CTS) - Tensão Alta/Baixa.
+                * **Err 21/22:** Falha no Sensor da Borboleta (TPS) - Tensão Alta/Baixa.
+                * **Err 24:** Falha no Sensor de Velocidade (VSS).
+                * **Err 33/34:** Falha no Sensor de Pressão (MAP) - Tensão Alta/Baixa.
+                * **Err 35:** Falha no controle de Marcha Lenta (IAC).
+                * **Err 42:** Falha no circuito do Módulo de Ignição (HEI).
+                * **Err 51:** Falha/Defeito no Memcal (EPROM).
+                * **Err 54:** Falha no circuito de ajuste de CO2.
+                """)
 
 else:
     st.info("👈 Por favor, carregue o arquivo de log (Multec700_.TXT) no menu lateral esquerdo.")
