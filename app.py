@@ -270,34 +270,17 @@ if arquivo_log is not None:
         # ==========================================
         with aba3:
             st.subheader("Módulo de Diagnóstico e Análise de Falhas")
-            col_err, col_flags = st.columns(2)
             
-            with col_err:
-                st.markdown("### 🔴 Erros Registados na ECU")
-                colunas_erros = [c for c in df.columns if c.startswith("Err_")]
-                erros_ocorridos = df[colunas_erros].sum()
-                erros_ativos = erros_ocorridos[erros_ocorridos > 0]
-                
-                if not erros_ativos.empty:
-                    st.error("Atenção! Falhas detetadas neste percurso:")
-                    st.dataframe(erros_ativos.rename("Ciclos com Falha"), use_container_width=True)
-                else:
-                    st.success("Nenhum código de falha registado na memória.")
-
-            with col_flags:
-                st.markdown("### 🟢 Status de Relés e Atuadores")
-                flags_atuadores = ["Flag_Fan1", "Flag_Fan2", "Flag_ACC", "Flag_RPF", "Flag_CutOff", "Flag_Motor_ON"]
-                status_atuadores = df[flags_atuadores].sum()
-                
-                fig_flags = px.bar(
-                    x=status_atuadores.values, 
-                    y=status_atuadores.index, 
-                    orientation='h',
-                    labels={'x': 'Ciclos Ativos', 'y': 'Atuador/Status'},
-                    title="Atividade de Periféricos"
-                )
-                fig_flags.update_layout(template="plotly_dark")
-                st.plotly_chart(fig_flags, use_container_width=True)
+            st.markdown("### Erros Registados na ECU")
+            colunas_erros = [c for c in df.columns if c.startswith("Err_")]
+            erros_ocorridos = df[colunas_erros].sum()
+            erros_ativos = erros_ocorridos[erros_ocorridos > 0]
+            
+            if not erros_ativos.empty:
+                st.error("Atenção! Falhas detetadas neste percurso:")
+                st.dataframe(erros_ativos.rename("Ciclos com Falha"), use_container_width=True)
+            else:
+                st.success("Nenhum código de falha registado na memória.")
 
         # ==========================================
         # ABA 4: DADOS BRUTOS
