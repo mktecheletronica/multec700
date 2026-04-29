@@ -116,7 +116,7 @@ if arquivo_log is not None:
         # ABA 2: TELEMETRIA E GRÁFICOS (Escalas Independentes + Flags Analisador Lógico)
         # ==========================================
         with aba2:
-            st.markdown("Dica: Selecione os sensores e as *flags*. As *flags* aparecerão na parte inferior do gráfico, como num analisador lógico.")
+            st.markdown("Dica: Selecione os sensores e as *flags*. As *flags* aparecerão na parte inferior do gráfico.")
             
             # --- Filtros de Seleção ---
             colunas_analogicas = list(LIMITES_SENSORES.keys())
@@ -147,7 +147,7 @@ if arquivo_log is not None:
                 tem_flags = len(selecionados_flags) > 0
                 
                 if tem_analog and tem_flags:
-                    # Se tiver ambos, divide o ecrã (75% topo para analógicos, 20% base para flags)
+                    # Se tiver ambos, divide o ecrã (analógicos acima, flags no rodapé)
                     domain_analog = [0.25, 1.0]
                     domain_flags = [0.0, 0.20]
                 elif tem_analog:
@@ -182,22 +182,18 @@ if arquivo_log is not None:
                             domain=domain_analog # Confina à zona designada
                         )
 
-                # --- Processamento das Flags (Estilo Analisador Lógico) ---
+                # --- Processamento das Flags (Estilo Analisador Lógico - Sem Offset) ---
                 if tem_flags:
                     # Determina um ID de eixo livre para alojar as flags
                     flag_axis_idx = len(selecionados_analog) + 1 if tem_analog else 1
                     axis_name_flag = f"y{flag_axis_idx}"
                     axis_key_flag = f"yaxis{flag_axis_idx}"
                     
-                    offset_espacamento = 1.5 # Espaçamento vertical entre as linhas de flag
-                    
                     for f_idx, flag in enumerate(selecionados_flags):
-                        # Pega na cor correspondente, assegurando que seja diferente das dos sensores analógicos se possível
                         cor_idx = (len(selecionados_analog) + f_idx) % len(cores)
                         
-                        # Adiciona um offset (desvio) matemático para as flags não se sobreporem
-                        offset = f_idx * offset_espacamento
-                        y_plot = df[flag] + offset
+                        # Sem desvio matemático: Nível 0 é 0, Nível 1 é 1 para todas as flags
+                        y_plot = df[flag]
                         
                         fig.add_trace(
                             go.Scatter(
@@ -205,9 +201,9 @@ if arquivo_log is not None:
                                 y=y_plot, 
                                 name=flag,
                                 mode='lines',
-                                line_shape='hv', # Traça em formato de degrau (quadrado) para sinais digitais
-                                line=dict(color=cores[cor_idx], width=1.5),
-                                customdata=df[flag], # Guarda o valor real (0 ou 1) no hover
+                                line_shape='hv', # Traça em formato de degrau (quadrado)
+                                line=dict(color=cores[cor_idx], width=2), # Linha ligeiramente mais grossa
+                                customdata=df[flag], 
                                 hovertemplate=f"<b>{flag}</b>: %{{customdata}}<extra></extra>",
                                 yaxis=axis_name_flag 
                             )
@@ -215,7 +211,7 @@ if arquivo_log is not None:
                     
                     # Configura o Eixo Matemático das Flags
                     layout_updates[axis_key_flag] = dict(
-                        range=[-0.2, (len(selecionados_flags) * offset_espacamento)], # Escala ajusta-se à quantidade de flags
+                        range=[-0.1, 1.2], # Escala rigorosa de 0 a 1 com margem de segurança visual
                         overlaying="y" if tem_analog else None, 
                         visible=False,            
                         fixedrange=False,
@@ -225,11 +221,11 @@ if arquivo_log is not None:
                 # --- Aplica as Configurações Gerais ---
                 fig.update_layout(
                     **layout_updates,
-                    height=700, # Aumentei ligeiramente a altura para acomodar as duas zonas confortavelmente
+                    height=700, 
                     hovermode="x unified",
                     template="plotly_dark",
                     margin=dict(l=20, r=20, t=50, b=20),
-                    title="Análise de Telemetria com Escalas Livres e Analisador Lógico"
+                    title="Análise de Telemetria"
                 )
 
                 # --- Formata o Eixo X (Tempo) e a Barra de Rolagem ---
