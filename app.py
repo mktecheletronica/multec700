@@ -89,9 +89,8 @@ def carregar_dados(arquivo, colunas):
 
 # --- Barra Lateral (Logo, Títulos e Upload) ---
 with st.sidebar:
-    st.markdown("<h2 style='text-align: center;'>MKTECH ELETRÔNICA</h2>", unsafe_allow_html=True)
-    st.markdown("<h4 style='text-align: center; color: gray;'>Analisador de Telemetria</h4>", unsafe_allow_html=True)
-    st.markdown("<h5 style='text-align: center; color: gray;'>Multec 700 DashBoard 3.0</h5>", unsafe_allow_html=True)
+    # Usando a versão RAW do seu link do GitHub para a imagem aparecer diretamente
+    st.image("https://raw.githubusercontent.com/mktecheletronica/site/main/logo2.png", use_container_width=True)
     st.markdown("---")
     
     st.header("📂 Importar Log")
