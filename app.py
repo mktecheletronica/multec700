@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 # --- Configuração Inicial da Página ---
 st.set_page_config(page_title="Multec 700 Logger Pro", layout="wide", initial_sidebar_state="expanded")
@@ -22,29 +23,27 @@ COLUNAS = [
     "Versão_HW"
 ]
 
-# --- Configuração dos Limites (Min/Max) para Normalização ---
-# Por favor, ajuste estes valores de acordo com as especificações exatas.
-# Formato: "Nome da Coluna": (Min, Max)
+# --- Configuração dos Limites (Min/Max) Exatos ---
 LIMITES_SENSORES = {
-    "RPM": (0, 7000),
+    "RPM": (0, 6800),
     "CTS (°C)": (0, 120),
     "CTS (V)": (0.0, 5.0),
-    "VSS (km/h)": (0, 200),
+    "VSS (km/h)": (0, 240),
     "TPS (%)": (0, 100),
     "TPS (V)": (0.0, 5.0),
     "Bateria (V)": (8.0, 16.0),
-    "O2 (V)": (0.0, 1.2), # Exemplo de Sonda Lambda (Banda Estreita)
-    "Avanço (°)": (-10, 60),
+    "O2 (V)": (0.0, 5.0), 
+    "Avanço (°)": (0, 40),
     "BPW (ms)": (0.0, 20.0),
     "MAP (V)": (0.0, 5.0),
-    "AFR Partida": (8.0, 18.0),
-    "AFR Atual": (8.0, 18.0),
+    "AFR Partida": (4.0, 18.0),
+    "AFR Atual": (4.0, 18.0),
     "IAC (Passos)": (0, 200),
-    "Marcha Lenta Ideal": (500, 1500),
+    "Marcha Lenta Ideal": (800, 2000),
     "Pressão Atm (V)": (0.0, 5.0),
     "MAP (kPa)": (10, 105),
     "Pressão Atm (kPa)": (50, 105),
-    "Consumo_Inst (L/h)": (0.0, 30.0),
+    "Consumo_Inst (L/h)": (0.0, 20.0),
 }
 
 
@@ -70,11 +69,7 @@ def carregar_dados(arquivo):
 
 # --- Barra Lateral (Logo, Títulos e Upload) ---
 with st.sidebar:
-    
-    # --- LOGOTIPO MKTECH ---
-    # st.image("URL_DA_SUA_LOGO_AQUI.png", use_column_width=True)
     st.markdown("<h2 style='text-align: center;'>MKTECH ELETRÔNICA</h2>", unsafe_allow_html=True)
-    
     st.markdown("<h4 style='text-align: center; color: gray;'>Analisador de Telemetria</h4>", unsafe_allow_html=True)
     st.markdown("<h5 style='text-align: center; color: gray;'>Multec 700 DashBoard 3.0</h5>", unsafe_allow_html=True)
     st.markdown("---")
@@ -119,69 +114,84 @@ if arquivo_log is not None:
             col_d.metric("MAP Médio", f"{df['MAP (kPa)'].mean():.1f} kPa")
 
         # ==========================================
-        # ABA 2: TELEMETRIA E GRÁFICOS (Normalização Min/Max)
+        # ABA 2: TELEMETRIA E GRÁFICOS (Eixos Fixos Min/Max)
         # ==========================================
         with aba2:
-            st.markdown("Selecione os sensores abaixo. Todos serão normalizados (0-100%) usando os limites predefinidos.")
+            st.markdown("Dica: Selecione os sensores. Cada um usará sua própria escala fixa (ex: Bateria sempre 8V a 16V).")
             
-            # Filtramos as colunas que estão no nosso dicionário de limites
             colunas_analogicas = list(LIMITES_SENSORES.keys())
             
             selecionados = st.multiselect(
                 "Sensores para visualização simultânea:", 
                 options=colunas_analogicas, 
-                default=["RPM", "MAP (kPa)", "TPS (%)"]
+                default=["RPM", "MAP (kPa)", "Bateria (V)"]
             )
 
             if selecionados:
-                # Criamos um DataFrame derivado longo (melted) para facilitar a plotagem
-                df_melted = df.melt(id_vars=['Tempo_Relogio', 'RTM_Continuo'], value_vars=selecionados, var_name='Sensor', value_name='Valor_Real')
-
-                # Função para normalizar baseado no dicionário LIMITES_SENSORES
-                def aplicar_constrain(row):
-                    sensor = row['Sensor']
-                    valor = row['Valor_Real']
-                    vmin, vmax = LIMITES_SENSORES.get(sensor, (0, 1)) # Default fallback (0, 1) se não achar
+                # Cria a figura com eixo Y secundário
+                fig = make_subplots(specs=[[{"secondary_y": True}]])
+                cores = px.colors.qualitative.Plotly
+                
+                # Adiciona cada linha ao gráfico
+                for idx, sensor in enumerate(selecionados):
+                    # O primeiro item vai para o eixo esquerdo (False), os demais para o direito (True)
+                    eixo_secundario = False if idx == 0 else True
                     
-                    if vmax > vmin:
-                        # Limita (constrain) o valor para não sair do range (opcional, dependendo se o sensor pode passar do max)
-                        valor_limitado = max(min(valor, vmax), vmin)
-                        return ((valor_limitado - vmin) / (vmax - vmin)) * 100
-                    return 50.0
+                    fig.add_trace(
+                        go.Scatter(
+                            x=df['Tempo_Relogio'], 
+                            y=df[sensor], 
+                            name=sensor,
+                            mode='lines',
+                            line=dict(color=cores[idx % len(cores)])
+                        ),
+                        secondary_y=eixo_secundario,
+                    )
 
-                # Aplica a função de constrain linha a linha
-                df_melted['Valor_Plot'] = df_melted.apply(aplicar_constrain, axis=1)
-
-                # Cria o gráfico
-                fig = px.line(
-                    df_melted, 
-                    x='Tempo_Relogio', 
-                    y='Valor_Plot', 
-                    color='Sensor', 
-                    height=600,
-                    hover_data={'Valor_Real': True, 'Valor_Plot': False, 'Tempo_Relogio': False},
-                    title="Curvas de Desempenho (Normalizadas com Limites Específicos)"
-                )
-
-                # Configurações de Layout
+                # Configurações Gerais do Layout
                 fig.update_layout(
+                    height=600,
                     hovermode="x unified",
                     template="plotly_dark",
                     margin=dict(l=20, r=20, t=50, b=20),
-                    yaxis_title="Escala Normalizada (%)",
-                    xaxis_title="Tempo (hh:mm:ss)"
+                    title="Análise de Telemetria (Valores Reais c/ Limites Fixos)"
                 )
 
-                # Formata o eixo X (Tempo) e re-habilita o Range Slider, com espessura fina (thickness)
+                # Formata o Eixo X (Tempo) e a Barra de Rolagem Fina
                 fig.update_xaxes(
+                    title_text="Tempo (hh:mm:ss)",
                     tickformat="%H:%M:%S",
                     hoverformat="%H:%M:%S.%L",
                     rangeslider=dict(
                         visible=True,
-                        thickness=0.08  # Deixa o Range Slider mais fino (8% da altura)
+                        thickness=0.08
                     )
                 )
-                
+
+                # --- A MÁGICA DOS LIMITES ---
+                if len(selecionados) >= 1:
+                    sensor_esq = selecionados[0]
+                    min_esq, max_esq = LIMITES_SENSORES.get(sensor_esq, (None, None))
+                    # Atualiza Eixo Esquerdo com limite fixo e sem título
+                    fig.update_yaxes(
+                        title_text="", # Título oculto conforme pedido
+                        range=[min_esq, max_esq], 
+                        secondary_y=False
+                    )
+
+                if len(selecionados) >= 2:
+                    # Para simplificar e não criar 10 eixos diferentes, o eixo direito 
+                    # vai adotar o range da SEGUNDA variável selecionada.
+                    sensor_dir = selecionados[1]
+                    min_dir, max_dir = LIMITES_SENSORES.get(sensor_dir, (None, None))
+                    # Atualiza Eixo Direito com limite fixo e sem título
+                    fig.update_yaxes(
+                        title_text="", # Título oculto conforme pedido
+                        range=[min_dir, max_dir], 
+                        secondary_y=True,
+                        showgrid=False # Esconde a grade do eixo secundário para não poluir
+                    )
+
                 st.plotly_chart(fig, use_container_width=True)
 
         # ==========================================
@@ -226,5 +236,4 @@ if arquivo_log is not None:
             st.dataframe(df.drop(columns=["Tempo_Relogio", "RTM_Continuo"]), use_container_width=True)
 
 else:
-    # Tela limpa de espera
     st.info("👈 Por favor, carregue seu arquivo de log (.TXT ou .CSV) no menu lateral esquerdo.")
