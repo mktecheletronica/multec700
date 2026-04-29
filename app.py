@@ -135,7 +135,7 @@ if arquivo_log is not None:
                 selecionados_flags = st.multiselect(
                     "Sinais Digitais / Flags (ON/OFF):", 
                     options=colunas_flags, 
-                    default=["Flag_FAN1", "Flag_FAN2"]
+                    default=["Flag_Fan1", "Flag_Fan2"] # <- CORRIGIDO: Maiúsculas/minúsculas iguais à lista COLUNAS
                 )
 
             if selecionados_analog or selecionados_flags:
