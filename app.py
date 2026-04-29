@@ -1,20 +1,11 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 # --- Configuração Inicial da Página ---
 st.set_page_config(page_title="Multec 700 Logger Pro", layout="wide", initial_sidebar_state="expanded")
-
-# --- Otimização de Espaço (CSS Personalizado) ---
-# Remove o grande espaço em branco no topo padrão do Streamlit
-st.markdown("""
-    <style>
-        .block-container {
-            padding-top: 1.5rem;
-            padding-bottom: 1.5rem;
-        }
-    </style>
-""", unsafe_allow_html=True)
 
 # --- Mapeamento das 53 Colunas ---
 COLUNAS = [
@@ -39,16 +30,12 @@ def carregar_dados(arquivo):
         df = pd.read_csv(arquivo, sep="|", header=None, names=COLUNAS)
         df["RTM (s)"] = pd.to_numeric(df["RTM (s)"], errors="coerce")
         
-        # --- CORREÇÃO DOS "PULSOS DIGITAIS" (Amostras Múltiplas por Segundo) ---
-        # Conta quantas vezes cada "segundo inteiro" se repete
+        # Correção das repetições de segundo
         counts = df.groupby("RTM (s)")["RTM (s)"].transform('count')
-        # Numera as repetições (0, 1, 2...)
         cumcounts = df.groupby("RTM (s)").cumcount()
-        # Adiciona frações de segundo para distribuir as amostras (ex: 1585.0, 1585.33, 1585.66)
         df["RTM_Continuo"] = df["RTM (s)"] + (cumcounts / counts)
         
-        # --- CONVERSÃO PARA TEMPO REAL (HH:MM:SS) ---
-        # Converte para um formato datetime base para o Plotly exibir como relógio
+        # Tempo formato relógio
         df["Tempo_Relogio"] = pd.to_datetime(df["RTM_Continuo"], unit='s')
         
         return df
@@ -58,12 +45,14 @@ def carregar_dados(arquivo):
 
 # --- Barra Lateral (Logo, Títulos e Upload) ---
 with st.sidebar:
-    # Espaço reservado para o seu logotipo futuro
-    # st.image("caminho/para/seu/logo.png", use_column_width=True)
     
-    st.markdown("### Analisador de Telemetria")
-    st.markdown("##### Multec 700 DashBoard 3.0")
-    st.markdown("<small><i>by MKTECH ELETRÔNICA</i></small>", unsafe_allow_html=True)
+    # --- LOGOTIPO MKTECH ---
+    # st.image("URL_DA_SUA_LOGO_AQUI.png", use_column_width=True)
+    # Exemplo temporário para você ver como fica centralizado:
+    st.markdown("<h2 style='text-align: center;'>MKTECH ELETRÔNICA</h2>", unsafe_allow_html=True)
+    
+    st.markdown("<h4 style='text-align: center; color: gray;'>Analisador de Telemetria</h4>", unsafe_allow_html=True)
+    st.markdown("<h5 style='text-align: center; color: gray;'>Multec 700 DashBoard 3.0</h5>", unsafe_allow_html=True)
     st.markdown("---")
     
     st.header("📂 Importar Log")
@@ -106,60 +95,65 @@ if arquivo_log is not None:
             col_d.metric("MAP Médio", f"{df['MAP (kPa)'].mean():.1f} kPa")
 
         # ==========================================
-        # ABA 2: TELEMETRIA E GRÁFICOS
+        # ABA 2: TELEMETRIA E GRÁFICOS (Eixos Múltiplos)
         # ==========================================
         with aba2:
-            colunas_analogicas = [c for c in COLUNAS if not c.startswith("Flag_") and not c.startswith("Err_") and c not in ["RTM (s)", "Versão_HW"]]
+            st.markdown("Dica: Clique e arraste no gráfico para dar **Zoom**. Dê duplo clique para resetar.")
             
-            # Controles em colunas para ocupar menos espaço
-            col_ctrl1, col_ctrl2 = st.columns([3, 1])
-            with col_ctrl1:
-                selecionados = st.multiselect(
-                    "Sensores para visualização:", 
-                    options=colunas_analogicas, 
-                    default=["RPM", "TPS (%)", "MAP (kPa)", "CTS (°C)"]
-                )
-            with col_ctrl2:
-                st.write("") # Espaçamento
-                st.write("") 
-                normalizar = st.checkbox("Normalizar Escalas (0-100%)", value=True, 
-                                         help="Ajusta todas as curvas para a mesma altura, facilitando a comparação entre valores.")
+            colunas_analogicas = [c for c in COLUNAS if not c.startswith("Flag_") and not c.startswith("Err_") and c not in ["RTM (s)", "Versão_HW", "RTM_Continuo"]]
+            
+            selecionados = st.multiselect(
+                "Sensores para visualização simultânea:", 
+                options=colunas_analogicas, 
+                default=["RPM", "MAP (kPa)", "TPS (%)"]
+            )
 
             if selecionados:
-                # Transformando os dados, trazendo a nova coluna Tempo_Relogio para o eixo X
-                df_melted = df.melt(id_vars=['Tempo_Relogio', 'RTM_Continuo'], value_vars=selecionados, var_name='Sensor', value_name='Valor_Real')
-
-                if normalizar:
-                    df_melted['Valor_Plot'] = df_melted.groupby('Sensor')['Valor_Real'].transform(
-                        lambda x: ((x - x.min()) / (x.max() - x.min()) * 100) if x.max() > x.min() else 50.0
-                    )
+                # Cria a figura preparada para múltiplos eixos Y dinâmicos
+                fig = make_subplots(specs=[[{"secondary_y": True}]])
+                
+                # Cores padrão do Plotly para diferenciar as linhas
+                cores = px.colors.qualitative.Plotly
+                
+                # Adiciona cada sensor como uma linha, usando eixos independentes inteligentemente
+                for idx, sensor in enumerate(selecionados):
+                    # O primeiro sensor (RPM geralmente) fica no eixo principal (Esquerdo)
+                    # Os demais compartilham ou ganham uma escala sobreposta no eixo Secundário (Direito)
+                    usar_eixo_secundario = True if idx > 0 else False
                     
-                    # Gráfico meio termo: height=600
-                    fig = px.line(df_melted, x='Tempo_Relogio', y='Valor_Plot', color='Sensor', height=600,
-                                  hover_data={'Valor_Real': True, 'Valor_Plot': False, 'Tempo_Relogio': False},
-                                  title="Curvas de Desempenho (Escala Normalizada)")
-                    fig.update_layout(yaxis_title="Escala (%)")
-                else:
-                    # Gráfico meio termo: height=600
-                    fig = px.line(df_melted, x='Tempo_Relogio', y='Valor_Real', color='Sensor', height=600,
-                                  title="Curvas de Desempenho (Valores Absolutos)")
-                    fig.update_layout(yaxis_title="Valores Reais")
-                
-                # Configurações do gráfico
+                    fig.add_trace(
+                        go.Scatter(
+                            x=df['Tempo_Relogio'], 
+                            y=df[sensor], 
+                            name=sensor,
+                            mode='lines',
+                            line=dict(color=cores[idx % len(cores)])
+                        ),
+                        secondary_y=usar_eixo_secundario,
+                    )
+
+                # Configurações de Layout
                 fig.update_layout(
-                    hovermode="x unified", 
+                    height=600,
+                    title_text="Telemetria com Escalas Independentes",
+                    hovermode="x unified",
                     template="plotly_dark",
-                    legend_title_text="Sensores",
-                    xaxis_title="Tempo de Funcionamento (hh:mm:ss)",
-                    margin=dict(l=20, r=20, t=50, b=20) # Reduz as margens vazias
+                    margin=dict(l=20, r=20, t=50, b=20)
                 )
-                
-                # Barra de Rolagem e Formatação do tempo em formato Relógio
+
+                # Formata o eixo X (Tempo)
                 fig.update_xaxes(
-                    rangeslider_visible=True,
-                    tickformat="%H:%M:%S",  # Força o eixo X a exibir hh:mm:ss
-                    hoverformat="%H:%M:%S.%L" # Ao passar o mouse, exibe os milissegundos
+                    title_text="Tempo (hh:mm:ss)",
+                    tickformat="%H:%M:%S",
+                    hoverformat="%H:%M:%S.%L",
+                    rangeslider_visible=False # <- RANGE SLIDER GROSSEIRO REMOVIDO!
                 )
+
+                # Nomeia os eixos Y baseados nas seleções
+                if len(selecionados) >= 1:
+                    fig.update_yaxes(title_text=selecionados[0], secondary_y=False)
+                if len(selecionados) >= 2:
+                    fig.update_yaxes(title_text="Outros Sensores", secondary_y=True)
                 
                 st.plotly_chart(fig, use_container_width=True)
 
@@ -202,9 +196,8 @@ if arquivo_log is not None:
         # ==========================================
         with aba4:
             st.subheader("Tabela de Dados Brutos")
-            # Adiciona a coluna calculada para você conferir como o tempo ficou
             st.dataframe(df.drop(columns=["Tempo_Relogio", "RTM_Continuo"]), use_container_width=True)
 
 else:
-    # Tela vazia, esperando arquivo, agora com um layout mais limpo
+    # Tela limpa de espera
     st.info("👈 Por favor, carregue seu arquivo de log (.TXT ou .CSV) no menu lateral esquerdo.")
