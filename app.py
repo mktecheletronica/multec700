@@ -22,7 +22,7 @@ COLUNAS = [
     "Versão_HW"
 ]
 
-# --- Configuração dos Limites (Min/Max) Exatos (Fornecidos por você) ---
+# --- Configuração dos Limites (Min/Max) Exatos (Fornecidos por si) ---
 LIMITES_SENSORES = {
     "RPM": (0, 6800),
     "CTS (°C)": (0, 120),
@@ -31,7 +31,7 @@ LIMITES_SENSORES = {
     "TPS (%)": (0, 100),
     "TPS (V)": (0.0, 5.0),
     "Bateria (V)": (8.0, 16.0),
-    "O2 (V)": (0.0, 5.0), # Multec700 não tem sonda, o ajuste é fixo por potenciometro
+    "O2 (V)": (0.0, 5.0), # Multec700 não tem sonda, o ajuste é fixo por potenciómetro
     "Avanço (°)": (0, 40),
     "BPW (ms)": (0.0, 20.0),
     "MAP (V)": (0.0, 5.0),
@@ -58,7 +58,7 @@ def carregar_dados(arquivo):
         cumcounts = df.groupby("RTM (s)").cumcount()
         df["RTM_Continuo"] = df["RTM (s)"] + (cumcounts / counts)
         
-        # Tempo formato relógio
+        # Tempo no formato de relógio
         df["Tempo_Relogio"] = pd.to_datetime(df["RTM_Continuo"], unit='s')
         
         return df
@@ -86,7 +86,7 @@ if arquivo_log is not None:
     
     if df is not None and not df.empty:
         versao_dash = df["Versão_HW"].iloc[-1]
-        st.success(f"Log carregado com sucesso! (Dashboard v{versao_dash} | {len(df)} registros)")
+        st.success(f"Log carregado com sucesso! (Dashboard v{versao_dash} | {len(df)} registos)")
 
         # --- Criação das Abas de Navegação ---
         aba1, aba2, aba3, aba4 = st.tabs(["📊 Visão Geral", "📈 Telemetria (Gráficos)", "⚠️ Diagnóstico (Scanner)", "📋 Dados Brutos"])
@@ -113,70 +113,133 @@ if arquivo_log is not None:
             col_d.metric("MAP Médio", f"{df['MAP (kPa)'].mean():.1f} kPa")
 
         # ==========================================
-        # ABA 2: TELEMETRIA E GRÁFICOS (Escalas Independentes)
+        # ABA 2: TELEMETRIA E GRÁFICOS (Escalas Independentes + Flags Analisador Lógico)
         # ==========================================
         with aba2:
-            st.markdown("Dica: Selecione os sensores. Cada curva usa exatamente seus valores Máximos e Mínimos de forma invisível.")
+            st.markdown("Dica: Selecione os sensores e as *flags*. As *flags* aparecerão na parte inferior do gráfico, como num analisador lógico.")
             
+            # --- Filtros de Seleção ---
             colunas_analogicas = list(LIMITES_SENSORES.keys())
+            # Filtra todas as colunas que começam por "Flag_"
+            colunas_flags = [c for c in df.columns if c.startswith("Flag_")]
             
-            selecionados = st.multiselect(
-                "Sensores para visualização simultânea:", 
-                options=colunas_analogicas, 
-                default=["RPM", "MAP (kPa)", "Bateria (V)"]
-            )
+            col_sel1, col_sel2 = st.columns(2)
+            with col_sel1:
+                selecionados_analog = st.multiselect(
+                    "Sensores Analógicos (0 a Max):", 
+                    options=colunas_analogicas, 
+                    default=["RPM", "MAP (kPa)", "Bateria (V)"]
+                )
+            with col_sel2:
+                selecionados_flags = st.multiselect(
+                    "Sinais Digitais / Flags (ON/OFF):", 
+                    options=colunas_flags, 
+                    default=["Flag_TPS_IDLE", "Flag_Motor_ON"]
+                )
 
-            if selecionados:
+            if selecionados_analog or selecionados_flags:
                 fig = go.Figure()
                 cores = px.colors.qualitative.Plotly
                 layout_updates = {}
                 
-                # Adiciona cada sensor com o seu próprio eixo invisível
-                for idx, sensor in enumerate(selecionados):
-                    axis_name = f"y{idx + 1}"
-                    
-                    # Adiciona a linha ao gráfico
-                    fig.add_trace(
-                        go.Scatter(
-                            x=df['Tempo_Relogio'], 
-                            y=df[sensor], 
-                            name=sensor,
-                            mode='lines',
-                            line=dict(color=cores[idx % len(cores)]),
-                            yaxis=axis_name # Vincula ao eixo matemático exclusivo desta linha
+                # --- Definição das Zonas do Ecrã (Domínios) ---
+                tem_analog = len(selecionados_analog) > 0
+                tem_flags = len(selecionados_flags) > 0
+                
+                if tem_analog and tem_flags:
+                    # Se tiver ambos, divide o ecrã (75% topo para analógicos, 20% base para flags)
+                    domain_analog = [0.25, 1.0]
+                    domain_flags = [0.0, 0.20]
+                elif tem_analog:
+                    domain_analog = [0.0, 1.0]
+                elif tem_flags:
+                    domain_flags = [0.0, 1.0]
+                
+                # --- Processamento dos Sensores Analógicos ---
+                if tem_analog:
+                    for idx, sensor in enumerate(selecionados_analog):
+                        axis_name = f"y{idx + 1}"
+                        
+                        fig.add_trace(
+                            go.Scatter(
+                                x=df['Tempo_Relogio'], 
+                                y=df[sensor], 
+                                name=sensor,
+                                mode='lines',
+                                line=dict(color=cores[idx % len(cores)]),
+                                yaxis=axis_name 
+                            )
                         )
-                    )
+                        
+                        vmin, vmax = LIMITES_SENSORES.get(sensor, (df[sensor].min(), df[sensor].max()))
+                        axis_key = f"yaxis{idx + 1}" if idx > 0 else "yaxis"
+                        
+                        layout_updates[axis_key] = dict(
+                            range=[vmin, vmax],       
+                            overlaying="y" if idx > 0 else None, 
+                            visible=False,            
+                            fixedrange=False,
+                            domain=domain_analog # Confina à zona designada
+                        )
+
+                # --- Processamento das Flags (Estilo Analisador Lógico) ---
+                if tem_flags:
+                    # Determina um ID de eixo livre para alojar as flags
+                    flag_axis_idx = len(selecionados_analog) + 1 if tem_analog else 1
+                    axis_name_flag = f"y{flag_axis_idx}"
+                    axis_key_flag = f"yaxis{flag_axis_idx}"
                     
-                    # Pega os limites do dicionário (ou calcula automático se não existir)
-                    vmin, vmax = LIMITES_SENSORES.get(sensor, (df[sensor].min(), df[sensor].max()))
+                    offset_espacamento = 1.5 # Espaçamento vertical entre as linhas de flag
                     
-                    # Configura o eixo matemático desta linha
-                    axis_key = f"yaxis{idx + 1}" if idx > 0 else "yaxis"
-                    layout_updates[axis_key] = dict(
-                        range=[vmin, vmax],       # Aplica o seu Constrain Min/Max
-                        overlaying="y" if idx > 0 else None, # Sobrepõe todos no mesmo espaço visual
-                        visible=False,            # Esconde a numeração lateral conforme você pediu
-                        fixedrange=False          # Permite zoom
+                    for f_idx, flag in enumerate(selecionados_flags):
+                        # Pega na cor correspondente, assegurando que seja diferente das dos sensores analógicos se possível
+                        cor_idx = (len(selecionados_analog) + f_idx) % len(cores)
+                        
+                        # Adiciona um offset (desvio) matemático para as flags não se sobreporem
+                        offset = f_idx * offset_espacamento
+                        y_plot = df[flag] + offset
+                        
+                        fig.add_trace(
+                            go.Scatter(
+                                x=df['Tempo_Relogio'], 
+                                y=y_plot, 
+                                name=flag,
+                                mode='lines',
+                                line_shape='hv', # Traça em formato de degrau (quadrado) para sinais digitais
+                                line=dict(color=cores[cor_idx], width=1.5),
+                                customdata=df[flag], # Guarda o valor real (0 ou 1) no hover
+                                hovertemplate=f"<b>{flag}</b>: %{{customdata}}<extra></extra>",
+                                yaxis=axis_name_flag 
+                            )
+                        )
+                    
+                    # Configura o Eixo Matemático das Flags
+                    layout_updates[axis_key_flag] = dict(
+                        range=[-0.2, (len(selecionados_flags) * offset_espacamento)], # Escala ajusta-se à quantidade de flags
+                        overlaying="y" if tem_analog else None, 
+                        visible=False,            
+                        fixedrange=False,
+                        domain=domain_flags # Confina à zona da base do ecrã
                     )
 
-                # Aplica as configurações gerais
+                # --- Aplica as Configurações Gerais ---
                 fig.update_layout(
                     **layout_updates,
-                    height=600,
+                    height=700, # Aumentei ligeiramente a altura para acomodar as duas zonas confortavelmente
                     hovermode="x unified",
                     template="plotly_dark",
                     margin=dict(l=20, r=20, t=50, b=20),
-                    title="Análise de Telemetria com Escalas Livres e Independentes"
+                    title="Análise de Telemetria com Escalas Livres e Analisador Lógico"
                 )
 
-                # Formata o Eixo X (Tempo) e a Barra de Rolagem
+                # --- Formata o Eixo X (Tempo) e a Barra de Rolagem ---
                 fig.update_xaxes(
                     title_text="Tempo (hh:mm:ss)",
                     tickformat="%H:%M:%S",
                     hoverformat="%H:%M:%S.%L",
                     rangeslider=dict(
                         visible=True,
-                        thickness=0.05 # Deixei o slider ainda mais fino/elegante
+                        thickness=0.05 
                     )
                 )
 
@@ -190,16 +253,16 @@ if arquivo_log is not None:
             col_err, col_flags = st.columns(2)
             
             with col_err:
-                st.markdown("### 🔴 Erros Registrados na ECU")
+                st.markdown("### 🔴 Erros Registados na ECU")
                 colunas_erros = [c for c in df.columns if c.startswith("Err_")]
                 erros_ocorridos = df[colunas_erros].sum()
                 erros_ativos = erros_ocorridos[erros_ocorridos > 0]
                 
                 if not erros_ativos.empty:
-                    st.error("Atenção! Falhas detectadas neste percurso:")
+                    st.error("Atenção! Falhas detetadas neste percurso:")
                     st.dataframe(erros_ativos.rename("Ciclos com Falha"), use_container_width=True)
                 else:
-                    st.success("Nenhum código de falha registrado na memória. Veículo saudável! ✅")
+                    st.success("Nenhum código de falha registado na memória. Veículo saudável! ✅")
 
             with col_flags:
                 st.markdown("### 🟢 Status de Relés e Atuadores")
@@ -224,4 +287,4 @@ if arquivo_log is not None:
             st.dataframe(df.drop(columns=["Tempo_Relogio", "RTM_Continuo"]), use_container_width=True)
 
 else:
-    st.info("👈 Por favor, carregue seu arquivo de log (.TXT ou .CSV) no menu lateral esquerdo.")
+    st.info("👈 Por favor, carregue o seu ficheiro de log (.TXT ou .CSV) no menu lateral esquerdo.")
