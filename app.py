@@ -365,7 +365,7 @@ elif st.session_state.view == 'dashboard':
 
             with aba4:
                 st.subheader("Tabela de Dados Brutos")
-                st.dataframe(df.drop(columns=["Tempo_Relogio", "RTM_Continuo"]), width="stretch", height=800)
+                st.dataframe(df.drop(columns=["Tempo_Relogio", "RTM_Continuo"]), width="stretch", height=500)
 
             with aba5:
                 st.subheader("📖 Glossário de Parâmetros Multec 700")
