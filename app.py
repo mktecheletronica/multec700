@@ -131,7 +131,7 @@ def carregar_dados(arquivo_ou_url, colunas):
 # ==========================================
 with st.sidebar:
     st.image("https://raw.githubusercontent.com/mktecheletronica/site/main/logo2.png", use_container_width=True)
-    st.markdown("<p style='text-align: center; font-size: 15px; font-weight: bold; margin-top: -15px; color: #cccccc;'>Visualizador de LOG's Multec 700<br>DashBoard 3.0</p>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; font-size: 15px; font-weight: bold; margin-top: 10px; color: #cccccc;'>Visualizador de LOG's<br>Multec 700 DashBoard 3.0</p>", unsafe_allow_html=True)
     st.markdown("---")
     
     st.header("Navegação")
