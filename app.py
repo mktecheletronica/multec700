@@ -287,7 +287,7 @@ if arquivo_log is not None:
         # ==========================================
         with aba4:
             st.subheader("Tabela de Dados Brutos")
-            st.dataframe(df.drop(columns=["Tempo_Relogio", "RTM_Continuo"]), use_container_width=True)
+            st.dataframe(df.drop(columns=["Tempo_Relogio", "RTM_Continuo"]), use_container_width=True, height=800)
 
         # ==========================================
         # ABA 5: GLOSSÁRIO
