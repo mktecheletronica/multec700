@@ -4,7 +4,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 
 # --- Configuração Inicial da Página ---
-st.set_page_config(page_title="Multec 700 Logger Pro", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Visualizador de LOG's Multec 700 DashBoard 3.0", layout="wide", initial_sidebar_state="expanded")
 
 # --- Mapeamento das 53 Colunas ---
 COLUNAS = [
@@ -246,7 +246,7 @@ if arquivo_log is not None:
                     st.error("Atenção! Falhas detetadas neste percurso:")
                     st.dataframe(erros_ativos.rename("Ciclos com Falha"), use_container_width=True)
                 else:
-                    st.success("Nenhum código de falha registado na memória. Veículo saudável! ✅")
+                    st.success("Nenhum código de falha registado na memória. Veículo saudável!")
 
             with col_flags:
                 st.markdown("### 🟢 Status de Relés e Atuadores")
@@ -271,4 +271,4 @@ if arquivo_log is not None:
             st.dataframe(df.drop(columns=["Tempo_Relogio", "RTM_Continuo"]), use_container_width=True)
 
 else:
-    st.info("👈 Por favor, carregue o seu ficheiro de log (.TXT ou .CSV) no menu lateral esquerdo.")
+    st.info("👈 Por favor, carregue o arquivo de log (Multec700_.TXT) no menu lateral esquerdo.")
