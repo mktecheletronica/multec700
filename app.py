@@ -147,7 +147,7 @@ if arquivo_log is not None:
                 tem_flags = len(selecionados_flags) > 0
                 
                 if tem_analog and tem_flags:
-                    # Se tiver ambos, divide o ecrã (analógicos acima, flags no rodapé)
+                    # Se tiver ambos, divide o ecrã (analógicos acima, flags no rodapé com espaço entre eles)
                     domain_analog = [0.25, 1.0]
                     domain_flags = [0.0, 0.20]
                 elif tem_analog:
@@ -192,9 +192,10 @@ if arquivo_log is not None:
                     for f_idx, flag in enumerate(selecionados_flags):
                         cor_idx = (len(selecionados_analog) + f_idx) % len(cores)
                         
-                        # Retornando a linha contínua para preservar as verticais de transição.
+                        # Garantimos que os valores da flag são lidos corretamente como números (0 ou 1)
                         # Multiplicamos por 0.5 para o nível 1 ficar visualmente a meia altura.
-                        y_plot = df[flag] * 0.5
+                        valores_numericos = pd.to_numeric(df[flag], errors='coerce').fillna(0)
+                        y_plot = valores_numericos * 0.5
                         
                         fig.add_trace(
                             go.Scatter(
@@ -202,7 +203,7 @@ if arquivo_log is not None:
                                 y=y_plot, 
                                 name=flag,
                                 mode='lines',
-                                line_shape='hv', # Traça em formato de degrau (quadrado)
+                                line_shape='hv', # Traça em formato de degrau mantendo as verticais
                                 line=dict(color=cores[cor_idx], width=2),
                                 customdata=df[flag], 
                                 hovertemplate=f"<b>{flag}</b>: %{{customdata}}<extra></extra>",
@@ -212,11 +213,11 @@ if arquivo_log is not None:
                     
                     # Configura o Eixo Matemático das Flags
                     layout_updates[axis_key_flag] = dict(
-                        range=[-0.1, 1.1], # Margem extra (-0.1) garante que o nível 0 nunca é cortado visualmente
-                        overlaying="y" if tem_analog else None, 
+                        range=[-0.1, 1.1], # Margem extra garante que o nível 0 nunca é cortado visualmente
+                        overlaying=None, # Correção Crítica: Sem overlaying para respeitar totalmente o 'domain' inferior
                         visible=False,            
                         fixedrange=False,
-                        domain=domain_flags # Confina à zona da base do ecrã
+                        domain=domain_flags # Confina à zona da base do ecrã separada do gráfico analógico
                     )
 
                 # --- Aplica as Configurações Gerais ---
