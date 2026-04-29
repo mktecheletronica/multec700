@@ -131,6 +131,7 @@ def carregar_dados(arquivo_ou_url, colunas):
 # ==========================================
 with st.sidebar:
     st.image("https://raw.githubusercontent.com/mktecheletronica/site/main/logo2.png", use_container_width=True)
+    st.markdown("<p style='text-align: center; font-size: 15px; font-weight: bold; margin-top: -15px; color: #cccccc;'>Visualizador de LOG's Multec 700<br>DashBoard 3.0</p>", unsafe_allow_html=True)
     st.markdown("---")
     
     st.header("Navegação")
@@ -201,7 +202,7 @@ if st.session_state.view == 'comunidade':
 # TELA 2: DASHBOARD E GRÁFICOS (Visão Principal)
 # ----------------------------------------------------
 elif st.session_state.view == 'dashboard':
-    st.markdown("<h3 style='text-align: center; margin-top: -15px; margin-bottom: 15px;'>Visualizador de LOG's Multec 700 DashBoard 3.0</h3>", unsafe_allow_html=True)
+    # O título gigante foi removido daqui para liberar espaço na tela
 
     if st.session_state.log_selecionado is not None:
         df = carregar_dados(st.session_state.log_selecionado, COLUNAS)
