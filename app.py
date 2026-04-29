@@ -9,7 +9,7 @@ st.set_page_config(page_title="Visualizador de LOG's Multec 700 DashBoard 3.0", 
 # --- Mapeamento das 53 Colunas ---
 COLUNAS = [
     "RTM (s)", "RPM", "CTS (°C)", "CTS (V)", "VSS (km/h)", "TPS (%)", "TPS (V)", 
-    "Bateria (V)", "O2 (V)", "Avanço (°)", "Memcal ID", "BPW (ms)", "MAP (V)", 
+    "Bateria (V)", "CO2 (V)", "Avanço (°)", "Memcal ID", "BPW (ms)", "MAP (V)", 
     "AFR Partida", "AFR Atual", "IAC (Passos)", "Marcha Lenta Ideal", "Pressão Atm (V)", 
     "Flag_RAQ", "Flag_ACC", "Flag_BCE", "Flag_CAC", "Flag_Fan2", "Flag_Fan1", 
     "Flag_RPF", "Flag_ShiftLight", "Flag_ISV", "Flag_Falha_Ativa", 
@@ -31,7 +31,7 @@ LIMITES_SENSORES = {
     "TPS (%)": (0, 100),
     "TPS (V)": (0.0, 5.0),
     "Bateria (V)": (8.0, 16.0),
-    "O2 (V)": (0.0, 5.0), # Multec700 não tem sonda, o ajuste é fixo por potenciómetro
+    "CO2 (V)": (0.0, 5.0), # Multec700 não tem sonda, o ajuste é fixo por potenciómetro
     "Avanço (°)": (0, 40),
     "BPW (ms)": (0.0, 20.0),
     "MAP (V)": (0.0, 5.0),
@@ -213,7 +213,7 @@ if arquivo_log is not None:
                     hovermode="x unified",
                     template="plotly_dark",
                     margin=dict(l=20, r=20, t=50, b=20),
-                    title="Análise de Telemetria Unificada"
+                    title="Gráficos do arquivo LOG"
                 )
 
                 # --- Formata o Eixo X (Tempo) e a Barra de Rolagem ---
