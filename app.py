@@ -88,7 +88,6 @@ if arquivo_log is not None:
     
     if df is not None and not df.empty:
         versao_dash = df["Versão_HW"].iloc[-1]
-        st.success(f"Log carregado com sucesso! (Dashboard v{versao_dash} | {len(df)} registos)")
 
         # --- Criação das Abas de Navegação ---
         aba1, aba2, aba3, aba4 = st.tabs(["📊 Visão Geral", "📈 Telemetria (Gráficos)", "⚠️ Diagnóstico (Scanner)", "📋 Dados Brutos"])
@@ -97,6 +96,7 @@ if arquivo_log is not None:
         # ABA 1: VISÃO GERAL
         # ==========================================
         with aba1:
+            st.success(f"Log carregado com sucesso! (Dashboard v{versao_dash} | {len(df)} registos)")
             st.subheader("Resumo do Percurso")
             col1, col2, col3, col4, col5 = st.columns(5)
             
