@@ -118,7 +118,7 @@ if arquivo_log is not None:
         # ABA 2: TELEMETRIA E GRÁFICOS (Tudo Num Só Ecrã)
         # ==========================================
         with aba2:
-            st.markdown("Dica: Selecione os sensores e as *flags*. Tudo será sobreposto num único ecrã. As *flags* assumem altura de 50%.")
+            #st.markdown("Dica: Selecione os sensores e as *flags*. Tudo será sobreposto num único ecrã. As *flags* assumem altura de 50%.")
             
             # --- Filtros de Seleção ---
             colunas_analogicas = list(LIMITES_SENSORES.keys())
@@ -248,7 +248,7 @@ if arquivo_log is not None:
                     st.error("Atenção! Falhas detetadas neste percurso:")
                     st.dataframe(erros_ativos.rename("Ciclos com Falha"), use_container_width=True)
                 else:
-                    st.success("Nenhum código de falha registado na memória. Veículo saudável!")
+                    st.success("Nenhum código de falha registado na memória.")
 
             with col_flags:
                 st.markdown("### 🟢 Status de Relés e Atuadores")
