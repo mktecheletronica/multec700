@@ -3,9 +3,9 @@ import pandas as pd
 import plotly.express as px
 
 # --- Configuração Inicial da Página ---
-st.set_page_config(page_title="Multec 700 Logger Pro", layout="wide", page_icon="🏎️")
+st.set_page_config(page_title="Multec 700 Logger Pro", layout="wide")
 
-# --- Mapeamento das 53 Colunas (Exatamente na ordem do seu Flutter) ---
+# --- Mapeamento das 53 Colunas ---
 COLUNAS = [
     "RTM (s)", "RPM", "CTS (°C)", "CTS (V)", "VSS (km/h)", "TPS (%)", "TPS (V)", 
     "Bateria (V)", "O2 (V)", "Avanço (°)", "Memcal ID", "BPW (ms)", "MAP (V)", 
@@ -25,20 +25,17 @@ COLUNAS = [
 @st.cache_data
 def carregar_dados(arquivo):
     try:
-        # Lê o arquivo TXT/CSV usando o pipe '|' como separador
         df = pd.read_csv(arquivo, sep="|", header=None, names=COLUNAS)
-        
-        # Converte a coluna de tempo (RTM) para garantir que seja numérica
         df["RTM (s)"] = pd.to_numeric(df["RTM (s)"], errors="coerce")
-        
         return df
     except Exception as e:
         st.error(f"Erro ao processar o arquivo: {e}")
         return None
 
 # --- Cabeçalho do App ---
-st.title("🏎️ Analisador de Telemetria - Multec 700")
-st.markdown("Faça o upload do log gerado pelo app Flutter para visualizar os dados de injeção.")
+st.title("Analisador de Telemetria - Multec 700 DashBoard 3.0")
+st.markdown("#### *by MKTECH ELETRÔNICA*")
+st.markdown("---")
 
 # --- Barra Lateral (Upload de Arquivo) ---
 with st.sidebar:
@@ -54,7 +51,6 @@ if arquivo_log is not None:
     df = carregar_dados(arquivo_log)
     
     if df is not None and not df.empty:
-        # Pega a versão do Dashboard da última linha
         versao_dash = df["Versão_HW"].iloc[-1]
         st.success(f"Log carregado com sucesso! (Dashboard v{versao_dash} | {len(df)} registros)")
 
@@ -62,15 +58,14 @@ if arquivo_log is not None:
         aba1, aba2, aba3, aba4 = st.tabs(["📊 Visão Geral", "📈 Telemetria (Gráficos)", "⚠️ Diagnóstico (Scanner)", "📋 Dados Brutos"])
 
         # ==========================================
-        # ABA 1: VISÃO GERAL (Dashboards e KPIs)
+        # ABA 1: VISÃO GERAL
         # ==========================================
         with aba1:
             st.subheader("Resumo do Percurso")
             col1, col2, col3, col4, col5 = st.columns(5)
             
-            # Cálculo de KPIs (Pegando valores máximos e finais)
-            col1.metric("RPM Máximo", f"{df['RPM'].max():.0f} RPM", help="Rotação máxima atingida")
-            col2.metric("Temp Máxima Água", f"{df['CTS (°C)'].max():.0f} °C", help="Temperatura máxima do motor (CTS)")
+            col1.metric("RPM Máximo", f"{df['RPM'].max():.0f} RPM")
+            col2.metric("Temp Máxima Água", f"{df['CTS (°C)'].max():.0f} °C")
             col3.metric("Distância Percorrida", f"{df['Distância_Total (km)'].iloc[-1]:.2f} km")
             col4.metric("Consumo Médio", f"{df['Consumo_Médio (km/L)'].iloc[-1]:.2f} km/L")
             col5.metric("Combustível Gasto", f"{df['Consumo_Total (L)'].iloc[-1]:.2f} L")
@@ -83,15 +78,12 @@ if arquivo_log is not None:
             col_c.metric("TPS Médio", f"{df['TPS (%)'].mean():.1f} %")
             col_d.metric("MAP Médio", f"{df['MAP (kPa)'].mean():.1f} kPa")
 
-
         # ==========================================
         # ABA 2: TELEMETRIA E GRÁFICOS
         # ==========================================
         with aba2:
             st.subheader("Análise Gráfica Personalizada")
-            st.markdown("Selecione os sensores abaixo para cruzar os dados no gráfico temporal.")
             
-            # Filtra apenas as colunas que são números analógicos (remove flags e erros para facilitar a lista)
             colunas_analogicas = [c for c in COLUNAS if not c.startswith("Flag_") and not c.startswith("Err_") and c not in ["RTM (s)", "Versão_HW"]]
             
             selecionados = st.multiselect(
@@ -99,57 +91,66 @@ if arquivo_log is not None:
                 options=colunas_analogicas, 
                 default=["RPM", "TPS (%)", "MAP (kPa)", "CTS (°C)"]
             )
+            
+            normalizar = st.checkbox("Normalizar Escalas (0-100%)", value=True, 
+                                     help="Ajusta todas as curvas para a mesma altura (constrain min-max), facilitando a comparação entre valores muito diferentes (ex: Bateria vs RPM).")
 
             if selecionados:
-                # Plota o gráfico usando o Tempo (RTM) no eixo X
-                fig = px.line(df, x="RTM (s)", y=selecionados, 
-                              title="Curvas de Desempenho do Motor",
-                              render_mode="webgl") # WebGL melhora a performance para logs grandes
+                # Transforma os dados para o formato longo (melt) facilitando as customizações de cada linha
+                df_melted = df.melt(id_vars=['RTM (s)'], value_vars=selecionados, var_name='Sensor', value_name='Valor_Real')
+
+                if normalizar:
+                    # Aplica a fórmula de normalização min-max (o seu "constrain")
+                    df_melted['Valor_Plot'] = df_melted.groupby('Sensor')['Valor_Real'].transform(
+                        lambda x: ((x - x.min()) / (x.max() - x.min()) * 100) if x.max() > x.min() else 50.0
+                    )
+                    
+                    fig = px.line(df_melted, x='RTM (s)', y='Valor_Plot', color='Sensor',
+                                  hover_data={'Valor_Real': True, 'Valor_Plot': False, 'RTM (s)': True},
+                                  title="Curvas de Desempenho (Escala Normalizada)")
+                    fig.update_layout(yaxis_title="Escala (%)")
+                else:
+                    fig = px.line(df_melted, x='RTM (s)', y='Valor_Real', color='Sensor',
+                                  title="Curvas de Desempenho (Valores Absolutos)")
+                    fig.update_layout(yaxis_title="Valores Reais")
                 
+                # Configurações do gráfico
                 fig.update_layout(
                     hovermode="x unified", 
                     template="plotly_dark",
                     legend_title_text="Sensores",
-                    xaxis_title="Tempo de Funcionamento (s)",
-                    yaxis_title="Valores"
+                    xaxis_title="Tempo de Funcionamento (s)"
                 )
+                
+                # ADICIONA A BARRA DE ROLAGEM / ZOOM INFERIOR
+                fig.update_xaxes(rangeslider_visible=True)
+                
                 st.plotly_chart(fig, use_container_width=True)
-
 
         # ==========================================
         # ABA 3: DIAGNÓSTICO (O Scanner)
         # ==========================================
         with aba3:
             st.subheader("Módulo de Diagnóstico e Análise de Falhas")
-            
             col_err, col_flags = st.columns(2)
             
             with col_err:
                 st.markdown("### 🔴 Erros Registrados na ECU")
-                st.info("Mostra quantas vezes cada código de falha foi ativado durante este log.")
-                
-                # Pega só as colunas de erro
                 colunas_erros = [c for c in df.columns if c.startswith("Err_")]
                 erros_ocorridos = df[colunas_erros].sum()
-                
-                # Filtra para mostrar apenas erros que ocorreram > 0
                 erros_ativos = erros_ocorridos[erros_ocorridos > 0]
                 
                 if not erros_ativos.empty:
                     st.error("Atenção! Falhas detectadas neste percurso:")
                     st.dataframe(erros_ativos.rename("Ciclos com Falha"), use_container_width=True)
                 else:
-                    st.success("Nenhum código de falha registrado na memória (Nenhum DTC). Veículo saudável! ✅")
+                    st.success("Nenhum código de falha registrado na memória. Veículo saudável! ✅")
 
             with col_flags:
                 st.markdown("### 🟢 Status de Relés e Atuadores")
-                st.info("Tempo ou ciclos em que os periféricos ficaram ativados.")
-                
-                # Pega as flags interessantes
                 flags_atuadores = ["Flag_Fan1", "Flag_Fan2", "Flag_ACC", "Flag_RPF", "Flag_CutOff", "Flag_Motor_ON"]
                 status_atuadores = df[flags_atuadores].sum()
                 
-                # Exibe num gráfico de barras horizontal simples
                 fig_flags = px.bar(
                     x=status_atuadores.values, 
                     y=status_atuadores.index, 
@@ -165,10 +166,7 @@ if arquivo_log is not None:
         # ==========================================
         with aba4:
             st.subheader("Tabela de Dados Brutos")
-            st.markdown("Use esta tabela para inspeção linha a linha do log gerado pelo Flutter.")
             st.dataframe(df, use_container_width=True)
 
 else:
-    # Tela inicial quando não há arquivo
-    st.info("👈 Por favor, faça o upload do arquivo de log (.TXT ou .CSV) na barra lateral para começar a análise.")
-    st.image("https://images.unsplash.com/photo-1486262715619-67b85e0b08d3?q=80&w=2000&auto=format&fit=crop", caption="Análise de Performance", use_column_width=True)
+    st.info("👈 Faça o upload do arquivo de log (.TXT ou .CSV) na barra lateral para começar.")
