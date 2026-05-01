@@ -55,23 +55,23 @@ LIMITES_SENSORES = {
 
 # --- Dicionário de Identificação do Memcal ---
 MEMCAL_MAP = {
-    3659: "MODULO APZJ 16133659 - MONZA 1.8 MANUAL GASOLINA",
-    3679: "MODULO APZL 16133679 - MONZA 1.8 MANUAL ALCOOL",
-    7939: "MODULO ARXC 16137939 - KADETT 1.8 MANUAL GASOLINA",
-    1049: "MODULO BCAM 16181049 - KADETT 2.0 MANUAL GASOLINA",
-    7959: "MODULO ARXF 16137959 - KADETT 1.8 MANUAL ALCOOL",
-    8699: "MODULO AWXW 16158699 - KADETT 1.8 AUTOM. GASOLINA",
-    3469: "MODULO BFXJ 16193469 - KADETT/IPANEMA 2.0 AUT. GASOLINA",
-    3709: "MODULO APZP 16133709 - MONZA 2.0 AUTOM. GASOLINA",
-    6009: "MODULO AYMN 16166009 - MONZA 2.0 MANUAL ALCOOL",
-    7409: "MODULO BBAA 16177409 - MONZA 1.8 MANUAL ALCOOL",
-    7399: "MODULO BAZZ 16177399 - KADETT 1.8 MANUAL ALCOOL",
-    3699: "MODULO AYBC 16133699 - MONZA 2.0 MANUAL GASOLINA",
-    3719: "MODULO AYBD 16133719 - MONZA 2.0 MANUAL ALCOOL",
-    5999: "MODULO AYMM 16165999 - MONZA/KADETT 2.0 MANUAL GASOLINA",
-    7419: "MODULO BBAB 16177419 - MONZA/KADETT 2.0 MANUAL ALCOOL",
-    2949: "MODULO BKSY 16202949 - MONZA/KADETT 1.8 MANUAL GASOLINA",
-    2829: "MODULO BKSJ 16202829 - MONZA/KADETT 2.0 MANUAL GASOLINA",
+    3659: "MODULO APZJ 16133659 - MONZA 1.8 MANUAL GAS",
+    3679: "MODULO APZL 16133679 - MONZA 1.8 MANUAL ALC",
+    7939: "MODULO ARXC 16137939 - KADETT 1.8 MANUAL GAS",
+    1049: "MODULO BCAM 16181049 - KADETT 2.0 MANUAL GAS",
+    7959: "MODULO ARXF 16137959 - KADETT 1.8 MANUAL ALC",
+    8699: "MODULO AWXW 16158699 - KADETT 1.8 AUTOM. GAS",
+    3469: "MODULO BFXJ 16193469 - KADETT/IPANEMA 2.0 AUT. GAS",
+    3709: "MODULO APZP 16133709 - MONZA 2.0 AUTOM. GAS",
+    6009: "MODULO AYMN 16166009 - MONZA 2.0 MANUAL ALC",
+    7409: "MODULO BBAA 16177409 - MONZA 1.8 MANUAL ALC",
+    7399: "MODULO BAZZ 16177399 - KADETT 1.8 MANUAL ALC",
+    3699: "MODULO AYBC 16133699 - MONZA 2.0 MANUAL GAS",
+    3719: "MODULO AYBD 16133719 - MONZA 2.0 MANUAL ALC",
+    5999: "MODULO AYMM 16165999 - MONZA/KADETT 2.0 MANUAL GAS",
+    7419: "MODULO BBAB 16177419 - MONZA/KADETT 2.0 MANUAL ALC",
+    2949: "MODULO BKSY 16202949 - MONZA/KADETT 1.8 MANUAL GAS",
+    2829: "MODULO BKSJ 16202829 - MONZA/KADETT 2.0 MANUAL GAS",
     9579: "MODULO 9579 - MONZA 2.0 MANUAL GAS (EXPORT. ARGENTINA)"
 }
 
@@ -130,8 +130,10 @@ def carregar_dados(arquivo_ou_url, colunas):
 # BARRA LATERAL (MENU DE NAVEGAÇÃO)
 # ==========================================
 with st.sidebar:
+    st.image("https://raw.githubusercontent.com/mktecheletronica/site/main/logo2.png", use_container_width=True)
     st.markdown("<p style='text-align: center; font-size: 15px; font-weight: bold; margin-top: 10px; color: #cccccc;'>Visualizador de LOG's<br>Multec 700 DashBoard 3.0</p>", unsafe_allow_html=True)
-
+    st.markdown("---")
+    
     st.header("Navegação")
     if st.button("📊 Dashboard / Arquivo Local", use_container_width=True):
         st.session_state.view = 'dashboard'
@@ -150,8 +152,8 @@ with st.sidebar:
             st.session_state.log_selecionado = arquivo_local
 
     st.markdown("<br><br>", unsafe_allow_html=True)
-    st.markdown("**Desenvolvido para Chevrolet:**")
-    st.markdown("*Monza / Kadett / Ipanema EFI*")
+    st.markdown("**Desenvolvido para GM EFI**")
+    st.markdown("*Monza / Kadett / Ipanema*")
 
 # ==========================================
 # ÁREA PRINCIPAL DO APLICATIVO
@@ -161,8 +163,8 @@ with st.sidebar:
 # TELA 1: GALERIA DA COMUNIDADE (Lista Ampla)
 # ----------------------------------------------------
 if st.session_state.view == 'comunidade':
-    st.title("🌐 LOG's da Comunidade")
-    st.write("Clique no botão à esquerda da linha de um registo abaixo para carregar a telemetria completa do Dashboard.")
+    st.title("🌐 LOG's da Comunidade (Público)")
+    st.write("Clique na linha de um registo abaixo para carregar a telemetria completa no Dashboard.")
     
     df_publicos = carregar_lista_logs_publicos()
     
@@ -200,7 +202,6 @@ if st.session_state.view == 'comunidade':
 # TELA 2: DASHBOARD E GRÁFICOS (Visão Principal)
 # ----------------------------------------------------
 elif st.session_state.view == 'dashboard':
-    # O título gigante foi removido daqui para liberar espaço na tela
     if st.session_state.log_selecionado is not None:
         df = carregar_dados(st.session_state.log_selecionado, COLUNAS)
         
@@ -210,7 +211,7 @@ elif st.session_state.view == 'dashboard':
             aba1, aba2, aba3, aba4, aba5 = st.tabs([
                 "📊 Visão Geral", 
                 "📈 Telemetria (Gráficos)", 
-                "⚠️ Diagnóstico de Falhas", 
+                "⚠️ Diagnóstico (Scanner)", 
                 "📋 Dados Brutos",
                 "📖 Glossário"
             ])
@@ -230,7 +231,7 @@ elif st.session_state.view == 'dashboard':
                 col1, col2, col3, col4, col5 = st.columns(5)
                 
                 col1.metric("RPM Máximo", f"{df['RPM'].max():.0f} RPM")
-                col2.metric("Temp. Máxima Água", f"{df['CTS (°C)'].max():.0f} °C")
+                col2.metric("Temp Máxima Água", f"{df['CTS (°C)'].max():.0f} °C")
                 col3.metric("Distância Percorrida", f"{df['Distância_Total (km)'].iloc[-1]:.2f} km")
                 col4.metric("Consumo Médio", f"{df['Consumo_Médio (km/L)'].iloc[-1]:.2f} km/L")
                 col5.metric("Combustível Gasto", f"{df['Consumo_Total (L)'].iloc[-1]:.2f} L")
@@ -303,6 +304,12 @@ elif st.session_state.view == 'dashboard':
                             cor_idx = (len(selecionados_analog) + f_idx) % len(cores)
                             
                             valores_numericos = pd.to_numeric(df[flag], errors='coerce').fillna(0)
+                            
+                            # --- LÓGICA DE INVERSÃO DOS GRÁFICOS ---
+                            # Inverte 0 para 1, e 1 para 0 nas lógicas de pino invertido
+                            if flag in ["Flag_CAC", "Flag_ISV", "Flag_ACC"]:
+                                valores_numericos = 1 - valores_numericos
+                            
                             y_plot = valores_numericos * 0.5
                             
                             fig.add_trace(
@@ -313,7 +320,8 @@ elif st.session_state.view == 'dashboard':
                                     mode='lines',
                                     line_shape='hv', 
                                     line=dict(color=cores[cor_idx], width=2),
-                                    customdata=df[flag], 
+                                    # Usa o valor (já invertido se aplicável) convertido de volta para int no tooltip
+                                    customdata=valores_numericos.astype(int), 
                                     hovertemplate=f"<b>{flag}</b>: %{{customdata}}<extra></extra>",
                                     yaxis=axis_name_flag 
                                 )
