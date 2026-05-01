@@ -187,8 +187,11 @@ with st.sidebar:
                 st.error("❌ Erro ao tentar ler a assinatura do ficheiro. Ficheiro corrompido.")
                 st.session_state.log_selecionado = None
         else:
-            # Se o utilizador clicar no X para fechar o ficheiro
-            st.session_state.log_selecionado = None
+            # Se o utilizador clicar no X para fechar o ficheiro (ou se não fez upload)
+            # CORREÇÃO DO BUG: Só apagamos o log_selecionado se ele for um ficheiro físico (Upload)
+            # Se for uma string (URL vinda da aba da Comunidade), não apagamos!
+            if st.session_state.log_selecionado is not None and not isinstance(st.session_state.log_selecionado, str):
+                st.session_state.log_selecionado = None
 
     st.markdown("<br><br>", unsafe_allow_html=True)
     st.markdown("**Desenvolvido para GM EFI**")
