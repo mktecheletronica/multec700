@@ -83,19 +83,23 @@ def carregar_lista_logs_publicos():
     try:
         df = pd.read_csv(url_planilha)
         
-        # Bloco de segurança para não quebrar o painel durante a transição da planilha
-        if len(df.columns) >= 6:
-            # Novo padrão com 6 colunas
+        # Gestão inteligente de colunas (compatibilidade com a transição da API)
+        num_colunas = len(df.columns)
+        
+        if num_colunas >= 8:
+            df.columns = ["Data/Hora", "ID", "Duração", "Usuário", "Veículo", "Comentário", "Obs_Moderador", "ID_Arquivo"]
+        elif num_colunas == 6:
             df.columns = ["Data/Hora", "ID", "Usuário", "Veículo", "Comentário", "ID_Arquivo"]
-        elif len(df.columns) == 5:
-            # Se for o padrão antigo sem a coluna ID, ou se a nova estrutura removeu o Usuário
-            # Vamos padronizar tudo internamente para 6 colunas e preencher o faltante
-            try:
-                df.columns = ["Data/Hora", "ID", "Veículo", "Comentário", "ID_Arquivo"]
-                df["Usuário"] = "Não Informado"
-            except:
-                df.columns = ["Data/Hora", "Usuário", "Comentário", "Veículo", "ID_Arquivo"]
-                df["ID"] = "N/A"
+            df["Duração"] = "--:--"
+            df["Obs_Moderador"] = ""
+        elif num_colunas == 5:
+            df.columns = ["Data/Hora", "ID", "Veículo", "Comentário", "ID_Arquivo"]
+            df["Usuário"] = "Não Informado"
+            df["Duração"] = "--:--"
+            df["Obs_Moderador"] = ""
+            
+        # Garante que N/A nas observações fique em branco
+        df["Obs_Moderador"] = df["Obs_Moderador"].fillna("")
                 
         return df
     except Exception:
@@ -111,6 +115,10 @@ def carregar_dados(arquivo_ou_url, colunas):
             conteudo = io.StringIO(resposta.text)
             df = pd.read_csv(conteudo, sep="|", header=None, names=colunas)
         else:
+            # Se o arquivo_ou_url for um buffer de ficheiro local (UploadedFile), 
+            # é preciso garantir que é lido a partir do início
+            if hasattr(arquivo_ou_url, 'seek'):
+                arquivo_ou_url.seek(0)
             df = pd.read_csv(arquivo_ou_url, sep="|", header=None, names=colunas)
             
         df["RTM (s)"] = pd.to_numeric(df["RTM (s)"], errors="coerce")
@@ -123,7 +131,7 @@ def carregar_dados(arquivo_ou_url, colunas):
         
         return df
     except Exception as e:
-        st.error(f"Erro ao processar o arquivo: {e}")
+        st.error(f"Erro ao processar o ficheiro: {e}")
         return None
 
 # ==========================================
@@ -146,10 +154,41 @@ with st.sidebar:
     st.markdown("---")
     
     if st.session_state.view == 'dashboard':
-        st.header("📂 Enviar Arquivo Log")
-        arquivo_local = st.file_uploader("Selecione o arquivo .TXT", type=["txt"])
+        st.header("📂 Enviar Ficheiro Log")
+        arquivo_local = st.file_uploader("Selecione o ficheiro .TXT", type=["txt"])
+        
+        # --- NOVO BLOCO DE VALIDAÇÃO DE SEGURANÇA E VERSÃO ---
         if arquivo_local:
-            st.session_state.log_selecionado = arquivo_local
+            try:
+                # Lê o conteúdo temporariamente para validar a estrutura
+                conteudo = arquivo_local.getvalue().decode('utf-8', errors='ignore')
+                linhas = [l for l in conteudo.split('\n') if l.strip()]
+                
+                if not linhas:
+                    st.error("❌ O ficheiro selecionado está vazio.")
+                    st.session_state.log_selecionado = None
+                else:
+                    # Avalia apenas a última linha válida para evitar ficheiros corrompidos no meio
+                    ultima_linha = linhas[-1].split('|')
+                    
+                    if len(ultima_linha) < 53:
+                        st.error("❌ Ficheiro incompatível! Este log parece pertencer a uma versão antiga do DashBoard (Quantidade de parâmetros insuficiente).")
+                        st.session_state.log_selecionado = None
+                    else:
+                        versao_hardware = str(ultima_linha[52]).strip()
+                        # Só aceita ficheiros que contenham a assinatura "3." (ex: 3.0.0) ou superiores
+                        if not versao_hardware.startswith('3.') and not versao_hardware.startswith('4.'):
+                            st.error(f"❌ Versão do ficheiro não suportada ({versao_hardware}). Necessita de ficheiros gerados pelo DashBoard versão 3.0 ou superior.")
+                            st.session_state.log_selecionado = None
+                        else:
+                            # Se passou em todas as verificações, aprova o ficheiro!
+                            st.session_state.log_selecionado = arquivo_local
+            except Exception as e:
+                st.error("❌ Erro ao tentar ler a assinatura do ficheiro. Ficheiro corrompido.")
+                st.session_state.log_selecionado = None
+        else:
+            # Se o utilizador clicar no X para fechar o ficheiro
+            st.session_state.log_selecionado = None
 
     st.markdown("<br><br>", unsafe_allow_html=True)
     st.markdown("**Desenvolvido para GM EFI**")
@@ -169,17 +208,19 @@ if st.session_state.view == 'comunidade':
     df_publicos = carregar_lista_logs_publicos()
     
     if not df_publicos.empty:
-        # Configurando as colunas conforme solicitado (A ordem exata é definida por column_order)
+        # Configurando as colunas conforme solicitado, ocultando ID e ID_Arquivo
         event = st.dataframe(
             df_publicos,
-            column_order=["Data/Hora", "ID", "Usuário", "Veículo", "Comentário"],
+            column_order=["Data/Hora", "Duração", "Usuário", "Veículo", "Comentário", "Obs_Moderador"],
             column_config={
-                "Data/Hora": st.column_config.TextColumn("Data do Registro"),
-                "ID": st.column_config.TextColumn("ID"),
+                "Data/Hora": st.column_config.TextColumn("Data de Registo"),
+                "Duração": st.column_config.TextColumn("Duração do Registo"),
                 "Usuário": st.column_config.TextColumn("Enviado por"),
                 "Veículo": st.column_config.TextColumn("Modelo"),
                 "Comentário": st.column_config.TextColumn("Observações do Utilizador", width="large"),
-                "ID_Arquivo": None # Esconde o código interno
+                "Obs_Moderador": st.column_config.TextColumn("Observações do Moderador", width="medium"),
+                "ID": None,          # Oculto
+                "ID_Arquivo": None   # Oculto
             },
             hide_index=True,
             width="stretch", 
@@ -196,7 +237,7 @@ if st.session_state.view == 'comunidade':
             st.rerun()
             
     else:
-        st.warning("Nenhum log público foi encontrado ou a planilha não pôde ser lida.")
+        st.warning("Nenhum log público foi encontrado ou a base de dados encontra-se vazia.")
 
 # ----------------------------------------------------
 # TELA 2: DASHBOARD E GRÁFICOS (Visão Principal)
@@ -305,8 +346,7 @@ elif st.session_state.view == 'dashboard':
                             
                             valores_numericos = pd.to_numeric(df[flag], errors='coerce').fillna(0)
                             
-                            # --- LÓGICA DE INVERSÃO DOS GRÁFICOS ---
-                            # Inverte 0 para 1, e 1 para 0 nas lógicas de pino invertido
+                            # --- LÓGICA DE INVERSÃO DOS GRÁFICOS MANTIDA ---
                             if flag in ["Flag_CAC", "Flag_ISV", "Flag_ACC"]:
                                 valores_numericos = 1 - valores_numericos
                             
@@ -320,7 +360,6 @@ elif st.session_state.view == 'dashboard':
                                     mode='lines',
                                     line_shape='hv', 
                                     line=dict(color=cores[cor_idx], width=2),
-                                    # Usa o valor (já invertido se aplicável) convertido de volta para int no tooltip
                                     customdata=valores_numericos.astype(int), 
                                     hovertemplate=f"<b>{flag}</b>: %{{customdata}}<extra></extra>",
                                     yaxis=axis_name_flag 
@@ -437,4 +476,4 @@ elif st.session_state.view == 'dashboard':
                     """)
 
     else:
-        st.info("👈 Utilize o menu lateral esquerdo para fazer upload de um log local ou explore os \"LOG's da Comunidade\".")
+        st.info("👈 Utilize o menu lateral esquerdo para carregar um ficheiro de log local ou explore a opção \"LOG's da Comunidade\".")
