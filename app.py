@@ -194,8 +194,8 @@ with st.sidebar:
                 st.session_state.log_selecionado = None
 
     st.markdown("<br><br>", unsafe_allow_html=True)
-    st.markdown("**Desenvolvido para Chevrolet:**")
-    st.markdown("*Monza / Kadett / Ipanema EFI*")
+    st.markdown("<p style='text-align: center;> **Desenvolvido para Chevrolet:**")
+    st.markdown("*<p style='text-align: center;>Monza / Kadett / Ipanema EFI*")
 
 # ==========================================
 # ÁREA PRINCIPAL DO APLICATIVO
