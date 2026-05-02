@@ -138,12 +138,12 @@ def carregar_dados(arquivo_ou_url, colunas):
 # BARRA LATERAL (MENU DE NAVEGAÇÃO)
 # ==========================================
 with st.sidebar:
-    st.image("https://raw.githubusercontent.com/mktecheletronica/site/main/logo2.png", use_container_width=True)
+    #st.image("https://raw.githubusercontent.com/mktecheletronica/site/main/logo2.png", use_container_width=True)
     st.markdown("<p style='text-align: center; font-size: 15px; font-weight: bold; margin-top: 10px; color: #cccccc;'>Visualizador de LOG's<br>Multec 700 DashBoard 3.0</p>", unsafe_allow_html=True)
     st.markdown("---")
     
     st.header("Navegação")
-    if st.button("📊 Dashboard / Arquivo Local", use_container_width=True):
+    if st.button("📊 Arquivo Local", use_container_width=True):
         st.session_state.view = 'dashboard'
         st.rerun()
 
@@ -194,8 +194,8 @@ with st.sidebar:
                 st.session_state.log_selecionado = None
 
     st.markdown("<br><br>", unsafe_allow_html=True)
-    st.markdown("**Desenvolvido para GM EFI**")
-    st.markdown("*Monza / Kadett / Ipanema*")
+    st.markdown("**Desenvolvido para Chevrolet:**")
+    st.markdown("*Monza / Kadett / Ipanema EFI*")
 
 # ==========================================
 # ÁREA PRINCIPAL DO APLICATIVO
@@ -205,8 +205,8 @@ with st.sidebar:
 # TELA 1: GALERIA DA COMUNIDADE (Lista Ampla)
 # ----------------------------------------------------
 if st.session_state.view == 'comunidade':
-    st.title("🌐 LOG's da Comunidade (Público)")
-    st.write("Clique na linha de um registo abaixo para carregar a telemetria completa no Dashboard.")
+    st.title("LOG's da Comunidade Multec 700")
+    st.write("Clique no botão á esquerda da linha de registro do Log que deseja visualizar.")
     
     df_publicos = carregar_lista_logs_publicos()
     
@@ -226,7 +226,7 @@ if st.session_state.view == 'comunidade':
                 "ID_Arquivo": None   # Oculto
             },
             hide_index=True,
-            width="stretch", 
+            use_container_width=False, 
             on_select="rerun",
             selection_mode="single-row",
             height=600
