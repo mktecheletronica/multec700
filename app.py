@@ -131,7 +131,7 @@ def carregar_dados(arquivo_ou_url, colunas):
         
         return df
     except Exception as e:
-        st.error(f"Erro ao processar o ficheiro: {e}")
+        st.error(f"Erro ao processar o arquivo: {e}")
         return None
 
 # ==========================================
@@ -154,8 +154,8 @@ with st.sidebar:
     st.markdown("---")
     
     if st.session_state.view == 'dashboard':
-        st.header("📂 Enviar Ficheiro Log")
-        arquivo_local = st.file_uploader("Selecione o ficheiro .TXT", type=["txt"])
+        st.header("📂 Enviar Arquivo Log")
+        arquivo_local = st.file_uploader("Selecione o arquivo .TXT", type=["txt"])
         
         # --- NOVO BLOCO DE VALIDAÇÃO DE SEGURANÇA E VERSÃO ---
         if arquivo_local:
@@ -165,26 +165,26 @@ with st.sidebar:
                 linhas = [l for l in conteudo.split('\n') if l.strip()]
                 
                 if not linhas:
-                    st.error("❌ O ficheiro selecionado está vazio.")
+                    st.error("❌ O arquivo selecionado está vazio.")
                     st.session_state.log_selecionado = None
                 else:
                     # Avalia apenas a última linha válida para evitar ficheiros corrompidos no meio
                     ultima_linha = linhas[-1].split('|')
                     
                     if len(ultima_linha) < 53:
-                        st.error("❌ Ficheiro incompatível! Este log parece pertencer a uma versão antiga do DashBoard (Quantidade de parâmetros insuficiente).")
+                        st.error("❌ Arquivo incompatível! Este log parece pertencer a uma versão antiga do DashBoard ou não é compatível.")
                         st.session_state.log_selecionado = None
                     else:
                         versao_hardware = str(ultima_linha[52]).strip()
                         # Só aceita ficheiros que contenham a assinatura "3." (ex: 3.0.0) ou superiores
                         if not versao_hardware.startswith('3.') and not versao_hardware.startswith('4.'):
-                            st.error(f"❌ Versão do ficheiro não suportada ({versao_hardware}). Necessita de ficheiros gerados pelo DashBoard versão 3.0 ou superior.")
+                            st.error(f"❌ Versão do arquivo não suportada ({versao_hardware}). Necessita de arquivos gerados pelo DashBoard versão 3.0 ou superior.")
                             st.session_state.log_selecionado = None
                         else:
                             # Se passou em todas as verificações, aprova o ficheiro!
                             st.session_state.log_selecionado = arquivo_local
             except Exception as e:
-                st.error("❌ Erro ao tentar ler a assinatura do ficheiro. Ficheiro corrompido.")
+                st.error("❌ Erro ao tentar ler a assinatura do arquivo. Arquivo corrompido.")
                 st.session_state.log_selecionado = None
         else:
             # Se o utilizador clicar no X para fechar o ficheiro (ou se não fez upload)
@@ -477,4 +477,4 @@ elif st.session_state.view == 'dashboard':
                     """)
 
     else:
-        st.info("👈 Utilize o menu lateral esquerdo para carregar um ficheiro de log local ou explore a opção \"LOG's da Comunidade\".")
+        st.info("👈 Utilize o menu lateral esquerdo para carregar um Arquivo de log local ou explore a opção \"LOG's da Comunidade\".")
