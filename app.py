@@ -219,7 +219,7 @@ if st.session_state.view == 'comunidade':
                 "Data/Hora": st.column_config.TextColumn("Data de Registo", width=130),
                 "Duração": st.column_config.TextColumn("Duração do Registo", width=130),
                 "Usuário": st.column_config.TextColumn("Enviado por", width=150),
-                "Veículo": st.column_config.TextColumn("Modelo", width=200),
+                "Veículo": st.column_config.TextColumn("Modelo", width=250),
                 "Comentário": st.column_config.TextColumn("Observações do Utilizador", width=400), # Largura forçada
                 "Obs_Moderador": st.column_config.TextColumn("Observações do Moderador", width=400), # Largura forçada
                 "ID": None,          # Oculto
