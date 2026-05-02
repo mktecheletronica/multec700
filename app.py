@@ -216,17 +216,17 @@ if st.session_state.view == 'comunidade':
             df_publicos,
             column_order=["Data/Hora", "Duração", "Usuário", "Veículo", "Comentário", "Obs_Moderador"],
             column_config={
-                "Data/Hora": st.column_config.TextColumn("Data de Registo"),
-                "Duração": st.column_config.TextColumn("Duração do Registo"),
-                "Usuário": st.column_config.TextColumn("Enviado por"),
-                "Veículo": st.column_config.TextColumn("Modelo"),
-                "Comentário": st.column_config.TextColumn("Observações do Utilizador", width="large"),
-                "Obs_Moderador": st.column_config.TextColumn("Observações do Moderador", width="medium"),
+                "Data/Hora": st.column_config.TextColumn("Data de Registo", width=130),
+                "Duração": st.column_config.TextColumn("Duração do Registo", width=130),
+                "Usuário": st.column_config.TextColumn("Enviado por", width=150),
+                "Veículo": st.column_config.TextColumn("Modelo", width=250),
+                "Comentário": st.column_config.TextColumn("Observações do Utilizador", width=500), # Largura forçada
+                "Obs_Moderador": st.column_config.TextColumn("Observações do Moderador", width=350), # Largura forçada
                 "ID": None,          # Oculto
                 "ID_Arquivo": None   # Oculto
             },
             hide_index=True,
-            use_container_width=False, 
+            use_container_width=True, 
             on_select="rerun",
             selection_mode="single-row",
             height=600
