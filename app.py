@@ -219,7 +219,7 @@ if st.session_state.view == 'comunidade':
                 "Usuário": st.column_config.TextColumn("Enviado por", width=150),
                 "Veículo": st.column_config.TextColumn("Modelo", width=250),
                 "Comentário": st.column_config.TextColumn("Observações do Utilizador", width=550), # Largura forçada
-                "Obs_Moderador": st.column_config.TextColumn("Observações do Moderador", width=400), # Largura forçada
+                "Obs_Moderador": st.column_config.TextColumn("Observações do Moderador", width=550), # Largura forçada
                 "ID": None,          # Oculto
                 "ID_Arquivo": None   # Oculto
             },
