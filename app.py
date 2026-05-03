@@ -204,7 +204,7 @@ with st.sidebar:
 # ----------------------------------------------------
 if st.session_state.view == 'comunidade':
     st.title("LOG's da Comunidade Multec 700")
-    st.write("Clique no botão á esquerda da linha de registro do Log que deseja visualizar.")
+    st.write("Clique no botão à esquerda da linha de registro do Log que deseja visualizar.")
     
     df_publicos = carregar_lista_logs_publicos()
     
@@ -477,4 +477,4 @@ elif st.session_state.view == 'dashboard':
                     """)
 
     else:
-        st.info("👈 Utilize o menu lateral esquerdo para carregar um Arquivo de log local ou explore a opção \"LOG's da Comunidade\".")
+        st.info("👈 Utilize o menu lateral esquerdo para carregar um Arquivo de log local ou explore a opção \"LOG's da Comunidade\<br>Acesse através do Computador para uma melhor visualização.".")
