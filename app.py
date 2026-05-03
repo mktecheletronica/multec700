@@ -477,4 +477,4 @@ elif st.session_state.view == 'dashboard':
                     """)
 
     else:
-        st.info("👈 Utilize o menu lateral esquerdo para carregar um Arquivo de log local ou explore a opção \"LOG's da Comunidade\". <br>Acesse através do Computador para uma melhor visualização.")
+        st.info("👈 Utilize o menu lateral esquerdo para carregar um Arquivo de log local ou explore a opção \"LOG's da Comunidade\". Acesse através do Computador para uma melhor visualização.")
