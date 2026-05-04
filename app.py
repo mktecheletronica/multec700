@@ -128,12 +128,20 @@ def carregar_dados(arquivo_ou_url, colunas):
         # 3. Ordena pelo tempo cronológico para evitar linhas que voltam no tempo (comum no bluetooth)
         df = df.sort_values(by="RTM (s)").reset_index(drop=True)
         
-        # 4. Interpolação para milissegundos usando o RTM real 
+        # 4. FILTRO DE GLITCH (Resolve a linha reta gigante)
+        # Procura por um salto irreal (ex: 0 para 1550) nas primeiras linhas e remove o ruído inicial
+        if len(df) > 1:
+            diferencas = df["RTM (s)"].diff()
+            if diferencas.head(10).max() > 10:
+                idx_salto = diferencas.head(10).idxmax()
+                df = df.iloc[idx_salto:].reset_index(drop=True)
+        
+        # 5. Interpolação para milissegundos usando o RTM real 
         counts = df.groupby("RTM (s)")["RTM (s)"].transform('count')
         cumcounts = df.groupby("RTM (s)").cumcount()
         df["RTM_Continuo"] = df["RTM (s)"] + (cumcounts / counts)
         
-        # 5. Conversão final para o relógio (mantendo o tempo original do log)
+        # 6. Conversão final para o relógio (mantendo o tempo original do log)
         df["Tempo_Relogio"] = pd.to_datetime(df["RTM_Continuo"], unit='s')
         
         return df
