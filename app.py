@@ -275,13 +275,12 @@ elif st.session_state.view == 'dashboard':
                 st.info(f"**Módulo Identificado:** {nome_modulo}")
                 
                 st.subheader("Resumo do Percurso")
-                col1, col2, col3, col4, col5 = st.columns(5)
+                col1, col2, col3, col4 = st.columns(4)
                 
                 col1.metric("RPM Máximo", f"{df['RPM'].max():.0f} RPM")
                 col2.metric("Temp Máxima Água", f"{df['CTS (°C)'].max():.0f} °C")
                 col3.metric("Distância Percorrida", f"{df['Distância_Total (km)'].iloc[-1]:.2f} km")
-                col4.metric("Consumo Médio", f"{df['Consumo_Médio (km/L)'].iloc[-1]:.2f} km/L")
-                col5.metric("Combustível Gasto", f"{df['Consumo_Total (L)'].iloc[-1]:.2f} L")
+                col4.metric("Velocidade Máxima", f"{df['VSS (km/h)'].max():.0f} km/h")
 
                 st.markdown("---")
                 st.subheader("Médias de Funcionamento")
@@ -300,13 +299,13 @@ elif st.session_state.view == 'dashboard':
                     selecionados_analog = st.multiselect(
                         "Sensores Analógicos:", 
                         options=colunas_analogicas, 
-                        default=["RPM", "MAP (kPa)", "Bateria (V)"]
+                        default=["RPM", "MAP (kPa)", "Bateria (V)", "TPS (%)", "VSS (km/h)", "CTS (°C)"]
                     )
                 with col_sel2:
                     selecionados_flags = st.multiselect(
                         "Sinais Digitais / Flags (ON/OFF):", 
                         options=colunas_flags, 
-                        default=["Flag_Fan1", "Flag_Fan2"]
+                        default=["Flag_Fan1", "Flag_Fan2", "Flag_ShiftLight"]
                     )
 
                 if selecionados_analog or selecionados_flags:
@@ -481,14 +480,14 @@ elif st.session_state.view == 'dashboard':
                     
                     st.markdown("#### ⚠️ Códigos de Erro (DTCs)")
                     st.markdown("""
-                    * **Err 14/15:** Falha no Sensor de Temperatura (CTS) - Alta/Baixa.
-                    * **Err 21/22:** Falha no Sensor da Borboleta (TPS) - Alta/Baixa.
-                    * **Err 24:** Falha no Sensor de Velocidade (VSS).
-                    * **Err 33/34:** Falha no Sensor de Pressão (MAP) - Alta/Baixa.
-                    * **Err 35:** Falha no controle de Marcha Lenta (IAC).
-                    * **Err 42:** Falha no circuito do Módulo de Ignição (HEI).
-                    * **Err 51:** Falha/Defeito no Memcal (EPROM).
-                    * **Err 54:** Falha no circuito de ajuste de CO2.
+                    * **Erro 14/15:** Falha no Sensor de Temperatura (CTS) - Alta/Baixa.
+                    * **Erro 21/22:** Falha no Sensor da Borboleta (TPS) - Alta/Baixa.
+                    * **Erro 24:** Falha no Sensor de Velocidade (VSS).
+                    * **Erro 33/34:** Falha no Sensor de Pressão (MAP) - Alta/Baixa.
+                    * **Erro 35:** Falha no controle de Marcha Lenta (IAC).
+                    * **Erro 42:** Falha no circuito do Módulo de Ignição (HEI).
+                    * **Erro 51:** Falha/Defeito no Memcal (EPROM).
+                    * **Erro 54:** Falha no circuito de ajuste de CO2.
                     """)
 
     else:
