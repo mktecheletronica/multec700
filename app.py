@@ -115,18 +115,37 @@ def carregar_dados(arquivo_ou_url, colunas):
             conteudo = io.StringIO(resposta.text)
             df = pd.read_csv(conteudo, sep="|", header=None, names=colunas)
         else:
-            # Se o arquivo_ou_url for um buffer de ficheiro local (UploadedFile), 
-            # é preciso garantir que é lido a partir do início
             if hasattr(arquivo_ou_url, 'seek'):
                 arquivo_ou_url.seek(0)
             df = pd.read_csv(arquivo_ou_url, sep="|", header=None, names=colunas)
             
+        # 1. Garante que RTM é numérico (falhas de leitura viram NaN)
         df["RTM (s)"] = pd.to_numeric(df["RTM (s)"], errors="coerce")
         
-        counts = df.groupby("RTM (s)")["RTM (s)"].transform('count')
-        cumcounts = df.groupby("RTM (s)").cumcount()
-        df["RTM_Continuo"] = df["RTM (s)"] + (cumcounts / counts)
+        # 2. Remove linhas corrompidas onde o tempo é nulo
+        df = df.dropna(subset=["RTM (s)"]).copy()
         
+        # 3. Ordena pelo tempo cronológico para evitar linhas que voltam no tempo (comum no bluetooth)
+        df = df.sort_values(by="RTM (s)").reset_index(drop=True)
+        
+        # 4. FILTRO DE GLITCH (Resolve a linha reta vindo do 0)
+        # Se a primeira linha for 0 (ruído de conexão) e a segunda pular muito (ex: > 5s), ignoramos a primeira linha
+        if len(df) > 1:
+            diff_inicial = df["RTM (s)"].iloc[1] - df["RTM (s)"].iloc[0]
+            if diff_inicial > 5:
+                df = df.iloc[1:].reset_index(drop=True)
+        
+        # 5. NORMALIZAÇÃO DO TEMPO (Resolve o problema do início em tempos variados como 1550s)
+        # Cria uma coluna relativa onde o log atual SEMPRE começa no zero
+        rtm_inicial = df["RTM (s)"].min()
+        df["RTM_Relativo"] = df["RTM (s)"] - rtm_inicial
+        
+        # 6. Interpolação para milissegundos (mesma lógica sua, mas baseada no RTM_Relativo)
+        counts = df.groupby("RTM_Relativo")["RTM_Relativo"].transform('count')
+        cumcounts = df.groupby("RTM_Relativo").cumcount()
+        df["RTM_Continuo"] = df["RTM_Relativo"] + (cumcounts / counts)
+        
+        # 7. Conversão final para o relógio (agora sempre vai iniciar em 00:00:00 certinho)
         df["Tempo_Relogio"] = pd.to_datetime(df["RTM_Continuo"], unit='s')
         
         return df
@@ -138,7 +157,6 @@ def carregar_dados(arquivo_ou_url, colunas):
 # BARRA LATERAL (MENU DE NAVEGAÇÃO)
 # ==========================================
 with st.sidebar:
-    #st.image("https://raw.githubusercontent.com/mktecheletronica/site/main/logo2.png", use_container_width=True)
     st.markdown("<p style='text-align: center; font-size: 15px; font-weight: bold; margin-top: 10px; color: #cccccc;'>Visualizador de LOG's<br>Multec 700 DashBoard 3.0</p>", unsafe_allow_html=True)
     st.markdown("---")
     
@@ -157,10 +175,8 @@ with st.sidebar:
         st.header("📂 Enviar Arquivo Log")
         arquivo_local = st.file_uploader("Selecione o arquivo .TXT", type=["txt"])
         
-        # --- NOVO BLOCO DE VALIDAÇÃO DE SEGURANÇA E VERSÃO ---
         if arquivo_local:
             try:
-                # Lê o conteúdo temporariamente para validar a estrutura
                 conteudo = arquivo_local.getvalue().decode('utf-8', errors='ignore')
                 linhas = [l for l in conteudo.split('\n') if l.strip()]
                 
@@ -168,7 +184,6 @@ with st.sidebar:
                     st.error("❌ O arquivo selecionado está vazio.")
                     st.session_state.log_selecionado = None
                 else:
-                    # Avalia apenas a última linha válida para evitar ficheiros corrompidos no meio
                     ultima_linha = linhas[-1].split('|')
                     
                     if len(ultima_linha) < 53:
@@ -176,20 +191,15 @@ with st.sidebar:
                         st.session_state.log_selecionado = None
                     else:
                         versao_hardware = str(ultima_linha[52]).strip()
-                        # Só aceita ficheiros que contenham a assinatura "3." (ex: 3.0.0) ou superiores
                         if not versao_hardware.startswith('3.') and not versao_hardware.startswith('4.'):
                             st.error(f"❌ Versão do arquivo não suportada ({versao_hardware}). Necessita de arquivos gerados pelo DashBoard versão 3.0 ou superior.")
                             st.session_state.log_selecionado = None
                         else:
-                            # Se passou em todas as verificações, aprova o ficheiro!
                             st.session_state.log_selecionado = arquivo_local
             except Exception as e:
                 st.error("❌ Erro ao tentar ler a assinatura do arquivo. Arquivo corrompido.")
                 st.session_state.log_selecionado = None
         else:
-            # Se o utilizador clicar no X para fechar o ficheiro (ou se não fez upload)
-            # CORREÇÃO DO BUG: Só apagamos o log_selecionado se ele for um ficheiro físico (Upload)
-            # Se for uma string (URL vinda da aba da Comunidade), não apagamos!
             if st.session_state.log_selecionado is not None and not isinstance(st.session_state.log_selecionado, str):
                 st.session_state.log_selecionado = None
 
@@ -209,7 +219,6 @@ if st.session_state.view == 'comunidade':
     df_publicos = carregar_lista_logs_publicos()
     
     if not df_publicos.empty:
-        # Configurando as colunas conforme solicitado, ocultando ID e ID_Arquivo
         event = st.dataframe(
             df_publicos,
             column_order=["Data/Hora", "Duração", "Usuário", "Veículo", "Comentário", "Obs_Moderador"],
@@ -218,10 +227,10 @@ if st.session_state.view == 'comunidade':
                 "Duração": st.column_config.TextColumn("Duração do Registo", width=130),
                 "Usuário": st.column_config.TextColumn("Enviado por", width=150),
                 "Veículo": st.column_config.TextColumn("Modelo", width=250),
-                "Comentário": st.column_config.TextColumn("Observações do Utilizador", width=550), # Largura forçada
-                "Obs_Moderador": st.column_config.TextColumn("Observações do Moderador", width=750), # Largura forçada
-                "ID": None,          # Oculto
-                "ID_Arquivo": None   # Oculto
+                "Comentário": st.column_config.TextColumn("Observações do Utilizador", width=550),
+                "Obs_Moderador": st.column_config.TextColumn("Observações do Moderador", width=750),
+                "ID": None,
+                "ID_Arquivo": None
             },
             hide_index=True,
             use_container_width=True, 
@@ -347,7 +356,6 @@ elif st.session_state.view == 'dashboard':
                             
                             valores_numericos = pd.to_numeric(df[flag], errors='coerce').fillna(0)
                             
-                            # --- LÓGICA DE INVERSÃO DOS GRÁFICOS MANTIDA ---
                             if flag in ["Flag_CAC", "Flag_ISV", "Flag_ACC"]:
                                 valores_numericos = 1 - valores_numericos
                             
@@ -411,7 +419,8 @@ elif st.session_state.view == 'dashboard':
 
             with aba4:
                 st.subheader("Tabela de Dados Brutos")
-                st.dataframe(df.drop(columns=["Tempo_Relogio", "RTM_Continuo"]), width="stretch", height=500)
+                # Escondemos as colunas de manipulação de tempo do plotly para não confundir o usuário, mas deixamos o RTM_Relativo visível!
+                st.dataframe(df.drop(columns=["Tempo_Relogio", "RTM_Continuo", "RTM_Relativo"]), width="stretch", height=500)
 
             with aba5:
                 st.subheader("📖 Glossário de Parâmetros Multec 700")
