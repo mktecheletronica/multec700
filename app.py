@@ -387,10 +387,20 @@ elif st.session_state.view == 'dashboard':
                         title="Gráficos do arquivo LOG"
                     )
 
+                    # --- Nova lógica para o zoom inicial de 1 minuto ---
+                    tempo_inicial = df['Tempo_Relogio'].min()
+                    tempo_final_log = df['Tempo_Relogio'].max()
+                    # Calcula o timestamp de 1 minuto à frente
+                    tempo_1_min = tempo_inicial + pd.Timedelta(minutes=1)
+                    
+                    # Se o log for menor que 1 minuto, exibe tudo; se for maior, exibe até 1 minuto.
+                    range_inicial = [tempo_inicial, min(tempo_1_min, tempo_final_log)]
+
                     fig.update_xaxes(
                         title_text="Tempo (hh:mm:ss)",
                         tickformat="%H:%M:%S",
                         hoverformat="%H:%M:%S.%L",
+                        range=range_inicial, # Aplica o recorte inicial da visualização
                         rangeslider=dict(
                             visible=True,
                             thickness=0.05 
