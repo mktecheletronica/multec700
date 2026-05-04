@@ -32,7 +32,7 @@ COLUNAS = [
 
 # --- Configuração dos Limites (Min/Max) Exatos ---
 LIMITES_SENSORES = {
-    "RPM": (0, 10000),
+    "RPM": (0, 6800),
     "CTS (°C)": (0, 120),
     "CTS (V)": (0.0, 5.0),
     "VSS (km/h)": (0, 240),
