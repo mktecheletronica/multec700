@@ -83,22 +83,39 @@ def carregar_lista_logs_publicos():
     try:
         df = pd.read_csv(url_planilha)
         
-        # Gestão inteligente de colunas (compatibilidade com a transição da API)
         num_colunas = len(df.columns)
         
-        if num_colunas >= 8:
+        # NOVA ESTRUTURA (16 Colunas)
+        if num_colunas >= 16:
+            df.columns = [
+                "Data/Hora", "ID", "Duração", "Usuário", "Veículo", "Comentário", "Obs_Moderador", 
+                "Status_Geral", "Tipo_Trajeto", "F_Engasgo", "F_Partida", "F_Potencia", 
+                "F_MarchaLenta", "F_Apagando", "F_Consumo", "ID_Arquivo"
+            ]
+        # ESTRUTURA DE TRANSIÇÃO (8 Colunas - Versão Anterior)
+        elif num_colunas == 8:
             df.columns = ["Data/Hora", "ID", "Duração", "Usuário", "Veículo", "Comentário", "Obs_Moderador", "ID_Arquivo"]
+            colunas_vazias = ["Status_Geral", "Tipo_Trajeto", "F_Engasgo", "F_Partida", "F_Potencia", "F_MarchaLenta", "F_Apagando", "F_Consumo"]
+            for col in colunas_vazias:
+                df[col] = ""
+        # ESTRUTURA ANTIGA (6 Colunas)
         elif num_colunas == 6:
             df.columns = ["Data/Hora", "ID", "Usuário", "Veículo", "Comentário", "ID_Arquivo"]
             df["Duração"] = "--:--"
             df["Obs_Moderador"] = ""
+            colunas_vazias = ["Status_Geral", "Tipo_Trajeto", "F_Engasgo", "F_Partida", "F_Potencia", "F_MarchaLenta", "F_Apagando", "F_Consumo"]
+            for col in colunas_vazias:
+                df[col] = ""
+        # PRIMEIRA ESTRUTURA (5 Colunas)
         elif num_colunas == 5:
             df.columns = ["Data/Hora", "ID", "Veículo", "Comentário", "ID_Arquivo"]
             df["Usuário"] = "Não Informado"
             df["Duração"] = "--:--"
             df["Obs_Moderador"] = ""
+            colunas_vazias = ["Status_Geral", "Tipo_Trajeto", "F_Engasgo", "F_Partida", "F_Potencia", "F_MarchaLenta", "F_Apagando", "F_Consumo"]
+            for col in colunas_vazias:
+                df[col] = ""
             
-        # Garante que N/A nas observações fique em branco
         df["Obs_Moderador"] = df["Obs_Moderador"].fillna("")
                 
         return df
@@ -217,6 +234,7 @@ if st.session_state.view == 'comunidade':
     if not df_publicos.empty:
         event = st.dataframe(
             df_publicos,
+            # Ordem apenas das colunas que queremos mostrar visualmente
             column_order=["Data/Hora", "Duração", "Usuário", "Veículo", "Comentário", "Obs_Moderador"],
             column_config={
                 "Data/Hora": st.column_config.TextColumn("Data de Registo", width=130),
@@ -225,7 +243,16 @@ if st.session_state.view == 'comunidade':
                 "Veículo": st.column_config.TextColumn("Modelo", width=250),
                 "Comentário": st.column_config.TextColumn("Observações do Utilizador", width=550),
                 "Obs_Moderador": st.column_config.TextColumn("Observações do Moderador", width=750),
+                # Esconder as colunas técnicas e de estatísticas para não poluir a tabela
                 "ID": None,
+                "Status_Geral": None,
+                "Tipo_Trajeto": None,
+                "F_Engasgo": None,
+                "F_Partida": None,
+                "F_Potencia": None,
+                "F_MarchaLenta": None,
+                "F_Apagando": None,
+                "F_Consumo": None,
                 "ID_Arquivo": None
             },
             hide_index=True,
