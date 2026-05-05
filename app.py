@@ -92,31 +92,8 @@ def carregar_lista_logs_publicos():
                 "Status_Geral", "Tipo_Trajeto", "F_Engasgo", "F_Partida", "F_Potencia", 
                 "F_MarchaLenta", "F_Apagando", "F_Consumo", "ID_Arquivo"
             ]
-        # ESTRUTURA DE TRANSIÇÃO (8 Colunas - Versão Anterior)
-        elif num_colunas == 8:
-            df.columns = ["Data/Hora", "ID", "Duração", "Usuário", "Veículo", "Comentário", "Obs_Moderador", "ID_Arquivo"]
-            colunas_vazias = ["Status_Geral", "Tipo_Trajeto", "F_Engasgo", "F_Partida", "F_Potencia", "F_MarchaLenta", "F_Apagando", "F_Consumo"]
-            for col in colunas_vazias:
-                df[col] = ""
-        # ESTRUTURA ANTIGA (6 Colunas)
-        elif num_colunas == 6:
-            df.columns = ["Data/Hora", "ID", "Usuário", "Veículo", "Comentário", "ID_Arquivo"]
-            df["Duração"] = "--:--"
-            df["Obs_Moderador"] = ""
-            colunas_vazias = ["Status_Geral", "Tipo_Trajeto", "F_Engasgo", "F_Partida", "F_Potencia", "F_MarchaLenta", "F_Apagando", "F_Consumo"]
-            for col in colunas_vazias:
-                df[col] = ""
-        # PRIMEIRA ESTRUTURA (5 Colunas)
-        elif num_colunas == 5:
-            df.columns = ["Data/Hora", "ID", "Veículo", "Comentário", "ID_Arquivo"]
-            df["Usuário"] = "Não Informado"
-            df["Duração"] = "--:--"
-            df["Obs_Moderador"] = ""
-            colunas_vazias = ["Status_Geral", "Tipo_Trajeto", "F_Engasgo", "F_Partida", "F_Potencia", "F_MarchaLenta", "F_Apagando", "F_Consumo"]
-            for col in colunas_vazias:
-                df[col] = ""
-            
-        df["Obs_Moderador"] = df["Obs_Moderador"].fillna("")
+        # Garante que nenhum campo vazio (como comentários em branco) apareça como "None" ou "NaN" na tela
+        df = df.fillna("")
                 
         return df
     except Exception:
