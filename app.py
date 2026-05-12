@@ -92,7 +92,7 @@ def carregar_lista_logs_publicos():
                 "Status_Geral", "Tipo_Trajeto", "F_Engasgo", "F_Partida", "F_Potencia", 
                 "F_MarchaLenta", "F_Apagando", "F_Consumo", "ID_Arquivo"
             ]
-        # Garante que nenhum campo vazio (como comentários em branco) apareça como "None" ou "NaN" na tela
+        # Garante que nenhum campo vazio apareça como "None" ou "NaN" na tela
         df = df.fillna("")
                 
         return df
@@ -101,17 +101,21 @@ def carregar_lista_logs_publicos():
 
 # --- FUNÇÃO: Carregamento de Dados (Local ou Nuvem) ---
 @st.cache_data
-def carregar_dados(arquivo_ou_url, colunas):
+def carregar_dados(arquivo_ou_url_ou_conteudo, colunas):
     try:
-        if isinstance(arquivo_ou_url, str) and arquivo_ou_url.startswith("http"):
-            resposta = requests.get(arquivo_ou_url)
-            resposta.raise_for_status()
-            conteudo = io.StringIO(resposta.text)
+        if isinstance(arquivo_ou_url_ou_conteudo, str):
+            if arquivo_ou_url_ou_conteudo.startswith("http"):
+                resposta = requests.get(arquivo_ou_url_ou_conteudo)
+                resposta.raise_for_status()
+                conteudo = io.StringIO(resposta.text)
+            else:
+                conteudo = io.StringIO(arquivo_ou_url_ou_conteudo)
+                
             df = pd.read_csv(conteudo, sep="|", header=None, names=colunas)
         else:
-            if hasattr(arquivo_ou_url, 'seek'):
-                arquivo_ou_url.seek(0)
-            df = pd.read_csv(arquivo_ou_url, sep="|", header=None, names=colunas)
+            if hasattr(arquivo_ou_url_ou_conteudo, 'seek'):
+                arquivo_ou_url_ou_conteudo.seek(0)
+            df = pd.read_csv(arquivo_ou_url_ou_conteudo, sep="|", header=None, names=colunas)
             
         # 1. Garante que RTM é numérico (falhas de leitura viram NaN)
         df["RTM (s)"] = pd.to_numeric(df["RTM (s)"], errors="coerce")
@@ -119,11 +123,10 @@ def carregar_dados(arquivo_ou_url, colunas):
         # 2. Remove linhas corrompidas onde o tempo é nulo
         df = df.dropna(subset=["RTM (s)"]).copy()
         
-        # 3. Ordena pelo tempo cronológico para evitar linhas que voltam no tempo (comum no bluetooth)
+        # 3. Ordena pelo tempo cronológico para evitar linhas que voltam no tempo
         df = df.sort_values(by="RTM (s)").reset_index(drop=True)
         
         # 4. FILTRO DE GLITCH (Resolve a linha reta gigante)
-        # Procura por um salto irreal (ex: 0 para 1550) nas primeiras linhas e remove o ruído inicial
         if len(df) > 1:
             diferencas = df["RTM (s)"].diff()
             if diferencas.head(10).max() > 10:
@@ -135,7 +138,7 @@ def carregar_dados(arquivo_ou_url, colunas):
         cumcounts = df.groupby("RTM (s)").cumcount()
         df["RTM_Continuo"] = df["RTM (s)"] + (cumcounts / counts)
         
-        # 6. Conversão final para o relógio (mantendo o tempo original do log)
+        # 6. Conversão final para o relógio
         df["Tempo_Relogio"] = pd.to_datetime(df["RTM_Continuo"], unit='s')
         
         return df
@@ -167,31 +170,26 @@ with st.sidebar:
         
         if arquivo_local:
             try:
+                # Resolve o problema extraindo o texto cru imediatamente
                 conteudo = arquivo_local.getvalue().decode('utf-8', errors='ignore')
                 linhas = [l for l in conteudo.split('\n') if l.strip()]
                 
                 if not linhas:
                     st.error("❌ O arquivo selecionado está vazio.")
-                    st.session_state.log_selecionado = None
                 else:
                     ultima_linha = linhas[-1].split('|')
                     
                     if len(ultima_linha) < 53:
                         st.error("❌ Arquivo incompatível! Este log parece pertencer a uma versão antiga do DashBoard ou não é compatível.")
-                        st.session_state.log_selecionado = None
                     else:
                         versao_hardware = str(ultima_linha[52]).strip()
                         if not versao_hardware.startswith('3.') and not versao_hardware.startswith('4.'):
                             st.error(f"❌ Versão do arquivo não suportada ({versao_hardware}). Necessita de arquivos gerados pelo DashBoard versão 3.0 ou superior.")
-                            st.session_state.log_selecionado = None
                         else:
-                            st.session_state.log_selecionado = arquivo_local
+                            # Salva a string no session_state em vez do widget temporário
+                            st.session_state.log_selecionado = conteudo
             except Exception as e:
                 st.error("❌ Erro ao tentar ler a assinatura do arquivo. Arquivo corrompido.")
-                st.session_state.log_selecionado = None
-        else:
-            if st.session_state.log_selecionado is not None and not isinstance(st.session_state.log_selecionado, str):
-                st.session_state.log_selecionado = None
 
     st.markdown("<br><br>", unsafe_allow_html=True)
 
@@ -211,7 +209,6 @@ if st.session_state.view == 'comunidade':
     if not df_publicos.empty:
         event = st.dataframe(
             df_publicos,
-            # Ordem apenas das colunas que queremos mostrar visualmente
             column_order=["Data/Hora", "Duração", "Usuário", "Veículo", "Comentário", "Obs_Moderador"],
             column_config={
                 "Data/Hora": st.column_config.TextColumn("Data de Registo", width=130),
@@ -220,17 +217,9 @@ if st.session_state.view == 'comunidade':
                 "Veículo": st.column_config.TextColumn("Modelo", width=250),
                 "Comentário": st.column_config.TextColumn("Observações do Utilizador", width=550),
                 "Obs_Moderador": st.column_config.TextColumn("Observações do Moderador", width=750),
-                # Esconder as colunas técnicas e de estatísticas para não poluir a tabela
-                "ID": None,
-                "Status_Geral": None,
-                "Tipo_Trajeto": None,
-                "F_Engasgo": None,
-                "F_Partida": None,
-                "F_Potencia": None,
-                "F_MarchaLenta": None,
-                "F_Apagando": None,
-                "F_Consumo": None,
-                "ID_Arquivo": None
+                "ID": None, "Status_Geral": None, "Tipo_Trajeto": None,
+                "F_Engasgo": None, "F_Partida": None, "F_Potencia": None,
+                "F_MarchaLenta": None, "F_Apagando": None, "F_Consumo": None, "ID_Arquivo": None
             },
             hide_index=True,
             use_container_width=True, 
@@ -390,20 +379,17 @@ elif st.session_state.view == 'dashboard':
                         title="Gráficos do arquivo LOG"
                     )
 
-                    # --- Nova lógica para o zoom inicial de 1 minuto ---
                     tempo_inicial = df['Tempo_Relogio'].min()
                     tempo_final_log = df['Tempo_Relogio'].max()
-                    # Calcula o timestamp de 1 minuto à frente
                     tempo_1_min = tempo_inicial + pd.Timedelta(minutes=1)
                     
-                    # Se o log for menor que 1 minuto, exibe tudo; se for maior, exibe até 1 minuto.
                     range_inicial = [tempo_inicial, min(tempo_1_min, tempo_final_log)]
 
                     fig.update_xaxes(
                         title_text="Tempo (hh:mm:ss)",
                         tickformat="%H:%M:%S",
                         hoverformat="%H:%M:%S.%L",
-                        range=range_inicial, # Aplica o recorte inicial da visualização
+                        range=range_inicial,
                         rangeslider=dict(
                             visible=True,
                             thickness=0.05 
@@ -428,7 +414,6 @@ elif st.session_state.view == 'dashboard':
 
             with aba4:
                 st.subheader("Tabela de Dados Brutos")
-                # Escondemos as colunas de manipulação de tempo do plotly para não confundir o usuário
                 st.dataframe(df.drop(columns=["Tempo_Relogio", "RTM_Continuo"]), width="stretch", height=500)
 
             with aba5:
