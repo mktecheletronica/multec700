@@ -103,42 +103,65 @@ def carregar_lista_logs_publicos():
 @st.cache_data
 def carregar_dados(arquivo_ou_url_ou_conteudo, colunas):
     try:
+        # 1. Extração do texto cru, independente da origem
         if isinstance(arquivo_ou_url_ou_conteudo, str):
             if arquivo_ou_url_ou_conteudo.startswith("http"):
                 resposta = requests.get(arquivo_ou_url_ou_conteudo)
                 resposta.raise_for_status()
-                conteudo = io.StringIO(resposta.text)
+                texto_cru = resposta.text
             else:
-                conteudo = io.StringIO(arquivo_ou_url_ou_conteudo)
-                
-            df = pd.read_csv(conteudo, sep="|", header=None, names=colunas)
+                texto_cru = arquivo_ou_url_ou_conteudo
         else:
             if hasattr(arquivo_ou_url_ou_conteudo, 'seek'):
                 arquivo_ou_url_ou_conteudo.seek(0)
-            df = pd.read_csv(arquivo_ou_url_ou_conteudo, sep="|", header=None, names=colunas)
-            
-        # 1. Garante que RTM é numérico (falhas de leitura viram NaN)
+            texto_cru = arquivo_ou_url_ou_conteudo.read()
+            if isinstance(texto_cru, bytes):
+                texto_cru = texto_cru.decode('utf-8', errors='ignore')
+        
+        # 2. FILTRO CIRÚRGICO DE INTEGRIDADE (Ignora as linhas com ruído Bluetooth)
+        linhas_validas = []
+        qtd_esperada = len(colunas) # Exatamente 53
+        
+        for linha in texto_cru.split('\n'):
+            linha = linha.strip()
+            if not linha:
+                continue
+            # Verifica se a linha tem exatamente as 53 colunas cortando pelos pipes '|'
+            campos = linha.split('|')
+            if len(campos) == qtd_esperada:
+                linhas_validas.append(linha)
+                
+        if not linhas_validas:
+            st.error("Nenhuma linha com 53 parâmetros exatos foi encontrada. O arquivo pode estar vazio ou corrompido.")
+            return None
+
+        # 3. Lê apenas as linhas filtradas de volta para o Pandas
+        conteudo_limpo = io.StringIO('\n'.join(linhas_validas))
+        df = pd.read_csv(conteudo_limpo, sep="|", header=None, names=colunas)
+        
+        # 4. Garante que RTM é numérico (falhas de leitura viram NaN)
         df["RTM (s)"] = pd.to_numeric(df["RTM (s)"], errors="coerce")
         
-        # 2. Remove linhas corrompidas onde o tempo é nulo
+        # 5. Remove linhas corrompidas onde o tempo é nulo e ignora RTM = 0
         df = df.dropna(subset=["RTM (s)"]).copy()
+        df = df[df["RTM (s)"] > 0].copy()
         
-        # 3. Ordena pelo tempo cronológico para evitar linhas que voltam no tempo
+        # 6. Ordena pelo tempo cronológico para evitar linhas que voltam no tempo
         df = df.sort_values(by="RTM (s)").reset_index(drop=True)
         
-        # 4. FILTRO DE GLITCH (Resolve a linha reta gigante)
+        # 7. FILTRO DE GLITCH (Resolve a linha reta gigante)
         if len(df) > 1:
             diferencas = df["RTM (s)"].diff()
             if diferencas.head(10).max() > 10:
                 idx_salto = diferencas.head(10).idxmax()
                 df = df.iloc[idx_salto:].reset_index(drop=True)
         
-        # 5. Interpolação para milissegundos usando o RTM real 
+        # 8. Interpolação para milissegundos usando o RTM real 
         counts = df.groupby("RTM (s)")["RTM (s)"].transform('count')
         cumcounts = df.groupby("RTM (s)").cumcount()
         df["RTM_Continuo"] = df["RTM (s)"] + (cumcounts / counts)
         
-        # 6. Conversão final para o relógio
+        # 9. Conversão final para o relógio
         df["Tempo_Relogio"] = pd.to_datetime(df["RTM_Continuo"], unit='s')
         
         return df
