@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import requests
 import io
 import numpy as np
@@ -26,10 +27,6 @@ if ENABLE_AI_DIAGNOSIS:
         os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
         from tensorflow.keras.models import load_model
         import google.generativeai as genai
-        
-        # IMPORTANTE: Requer 'matplotlib' no requirements.txt
-        import matplotlib.pyplot as plt
-        import matplotlib.ticker as ticker
         
         # Módulos locais do projeto 
         from data_pipeline import MultecDataPipeline
@@ -309,7 +306,7 @@ elif st.session_state.view == 'dashboard':
                 col_c.metric("TPS Médio", f"{df['TPS (%)'].mean():.1f} %")
                 col_d.metric("MAP Médio", f"{df['MAP (kPa)'].mean():.1f} kPa")
 
-            # ABA 2: GRÁFICOS (Telemetria Interativa - Mantém-se o Plotly aqui)
+            # ABA 2: GRÁFICOS (Telemetria)
             with aba2:
                 colunas_analogicas = list(LIMITES_SENSORES.keys())
                 colunas_flags = [c for c in df.columns if c.startswith("Flag_")]
@@ -359,7 +356,6 @@ elif st.session_state.view == 'dashboard':
             with aba3:
                 st.subheader("Módulo de Diagnóstico e Análise de Falhas")
                 
-                # 1. SISTEMA ORIGINAL DA ECU
                 st.markdown("### Erros Registados na ECU (Clássico)")
                 colunas_erros = [c for c in df.columns if c.startswith("Err_")]
                 erros_ocorridos = df[colunas_erros].sum()
@@ -373,18 +369,16 @@ elif st.session_state.view == 'dashboard':
 
                 st.markdown("---")
                 
-                # 2. SISTEMA DE IA NEURO-SIMBÓLICO
                 if ENABLE_AI_DIAGNOSIS:
                     st.markdown("### 🤖 Diagnóstico Avançado IA (Neuro-Simbólico)")
                     st.markdown("*(Fase 1: Mestre Mecânico & Estatística Robusta | Fase 2: Motor DTW)*")
                     
                     if not IA_DISPONIVEL:
                         st.warning(f"O módulo de IA não está disponível neste servidor. Erro interno: {ERRO_CARREGAMENTO_IA}")
-                        st.info("Verifique se o pacote 'matplotlib' está no seu ficheiro requirements.txt na Railway!")
+                        st.info("Verifique se as bibliotecas estão corretamente instaladas na máquina hospedeira.")
                     else:
                         if st.button("🔍 Executar Análise Profunda com IA", type="primary"):
                             with st.spinner("A inicializar os modelos matemáticos e a avaliar o Log..."):
-                                
                                 try:
                                     scaler, modelo, pipeline, mestre, biblioteca = carregar_cerebro_ia()
                                     
@@ -521,7 +515,7 @@ elif st.session_state.view == 'dashboard':
                                             assinatura_dtw = "Nenhuma"
 
                                         # =========================================================
-                                        # GRÁFICOS RECONSTRUÍDOS (100% MATPLOTLIB - SISTEMA ORIGINAL)
+                                        # GRÁFICOS RECONSTRUÍDOS (100% PLOTLY - ESTÉTICA E PRECISÃO)
                                         # =========================================================
                                         st.markdown("---")
                                         st.markdown("#### 📊 Relatório Visual do Diagnóstico")
@@ -533,82 +527,105 @@ elif st.session_state.view == 'dashboard':
                                             if len(falhas_ia) > 0:
                                                 sensores_para_grafico.extend(falhas_ia['Culpado_Final'].unique().tolist())
                                                 
+                                        # Limita a 4 sensores para manter a proporção da tela
                                         sensores_para_grafico = list(dict.fromkeys(sensores_para_grafico))[:4]
                                         
                                         num_paineis = 2 + len(sensores_para_grafico)
-                                        fig, axes = plt.subplots(num_paineis, 1, figsize=(15, 3.5 * num_paineis), sharex=True)
-                                        if not isinstance(axes, (list, np.ndarray)): axes = [axes]
                                         
-                                        # Converte o index (Datetime) para Segundos Lineares para o Matplotlib formatar depois
-                                        tempo_real = (df_alvo.index - df_alvo.index[0]).total_seconds().to_numpy()
+                                        # O Painel 1 tem 2 eixos (RPM esquerda, TPS direita). O resto tem 1 eixo.
+                                        specs = [[{"secondary_y": True}]] + [[{"secondary_y": False}]] * (num_paineis - 1)
+                                        
+                                        titulos_paineis = ["RPM vs TPS (%) - Estados do Motor"]
+                                        for s in sensores_para_grafico:
+                                            titulos_paineis.append(f"Monitorização de Falha: {s}")
+                                        titulos_paineis.append("Avaliação Global (Cérebro da IA)")
+
+                                        fig_ia = make_subplots(rows=num_paineis, cols=1, shared_xaxes=True, vertical_spacing=0.06, specs=specs, subplot_titles=titulos_paineis)
+                                        
+                                        # O Tempo como Índice Datetime Nativo do Pipeline garante precisão de formatação
+                                        tempo_plot = df_alvo.index 
                                         
                                         # --- PAINEL 1: RPM e TPS ---
-                                        ax1 = axes[0]
-                                        ax1.plot(tempo_real, df_alvo['RPM'], label='RPM', color='#1f77b4')
-                                        ax1.set_ylim(*LIMITES_SENSORES.get('RPM', (0, 6400)))
-                                        ax1.set_ylabel('RPM', color='#1f77b4', fontweight='bold')
-                                        ax1.set_title("RPM vs TPS (%) - Estados do Motor", fontsize=14, fontweight='bold', color='gray')
-                                        ax1.grid(True, alpha=0.3)
-                                        
-                                        ax1_2 = ax1.twinx()
-                                        ax1_2.plot(tempo_real, df_alvo['TPS (%)'], label='TPS (%)', color='#2ca02c', alpha=0.7, linewidth=1.5)
-                                        ax1_2.set_ylim(*LIMITES_SENSORES.get('TPS (%)', (0, 100)))
-                                        ax1_2.set_ylabel('TPS (%)', color='#2ca02c', fontweight='bold')
-                                        
                                         estados_cores = {'Idle': 'cyan', 'Cruise': 'gray', 'WOT': 'red', 'Decel': 'blue', 'Warmup': 'magenta'}
-                                        for estado, cor in estados_cores.items():
-                                            onde = df_alvo['Estado_Motor'] == estado
-                                            if onde.any():
-                                                ax1.fill_between(tempo_real, ax1.get_ylim()[0], ax1.get_ylim()[1], 
-                                                                 where=onde, color=cor, alpha=0.15, label=f'Estado: {estado}')
-                                                                 
-                                        linhas1, labels1 = ax1.get_legend_handles_labels()
-                                        linhas2, labels2 = ax1_2.get_legend_handles_labels()
-                                        ax1.legend(linhas1 + linhas2, labels1 + labels2, loc='upper left', fontsize='small', ncol=2)
                                         
+                                        for estado, cor in estados_cores.items():
+                                            mask_est = df_alvo['Estado_Motor'] == estado
+                                            if mask_est.any():
+                                                # Encontra blocos isolados com precisão
+                                                starts = tempo_plot[mask_est & ~mask_est.shift(1, fill_value=False)]
+                                                ends = tempo_plot[mask_est & ~mask_est.shift(-1, fill_value=False)]
+                                                
+                                                for s, e in zip(starts, ends):
+                                                    # Desenha retângulos de fundo exatos
+                                                    fig_ia.add_vrect(x0=s, x1=e, fillcolor=cor, opacity=0.15, layer="below", line_width=0, row=1, col=1)
+                                                
+                                                # Traço oculto para a legenda
+                                                fig_ia.add_trace(go.Scatter(x=[None], y=[None], mode='markers', marker=dict(color=cor, size=10, symbol='square'), name=f'Estado: {estado}'), row=1, col=1)
+
+                                        fig_ia.add_trace(go.Scatter(x=tempo_plot, y=df_alvo['RPM'], name='RPM', line=dict(color='#1f77b4', width=2), hovertemplate='RPM: %{y}<br>Tempo: %{x|%M:%S.%L}<extra></extra>'), row=1, col=1, secondary_y=False)
+                                        fig_ia.add_trace(go.Scatter(x=tempo_plot, y=df_alvo['TPS (%)'], name='TPS (%)', line=dict(color='#2ca02c', width=2), opacity=0.7, hovertemplate='TPS: %{y}%<br>Tempo: %{x|%M:%S.%L}<extra></extra>'), row=1, col=1, secondary_y=True)
+                                        
+                                        fig_ia.update_yaxes(title_text="RPM", title_font=dict(color='#1f77b4', size=12, family="Arial Black"), row=1, col=1, secondary_y=False)
+                                        fig_ia.update_yaxes(title_text="TPS (%)", title_font=dict(color='#2ca02c', size=12, family="Arial Black"), row=1, col=1, secondary_y=True)
+
                                         # --- PAINÉIS DO MEIO: Sensores Culpados ---
                                         for i, sensor in enumerate(sensores_para_grafico):
-                                            ax_sensor = axes[i + 1]
-                                            ax_sensor.set_title(f"Monitorização de Falha: {sensor}", fontsize=12, color='darkred', fontweight='bold')
-                                            
-                                            ax_sensor.plot(tempo_real, df_alvo[sensor], label=sensor, color='darkorange', linewidth=2)
-                                            
-                                            vmin, vmax = LIMITES_SENSORES.get(sensor, (df_alvo[sensor].min()-2, df_alvo[sensor].max()+2))
-                                            ax_sensor.set_ylim(vmin, vmax)
-                                            ax_sensor.set_ylabel(sensor, color='darkorange', fontweight='bold')
-                                            ax_sensor.grid(True, alpha=0.3)
+                                            r = i + 2
                                             
                                             mask_falha_sensor = (df_alvo['Falha_Confirmada'] & (df_alvo['Culpado_Final'] == sensor)).rolling(window=FREQ_HZ, center=True, min_periods=1).max() > 0
+                                            
                                             if mask_falha_sensor.any():
-                                                ax_sensor.fill_between(tempo_real, ax_sensor.get_ylim()[0], ax_sensor.get_ylim()[1], 
-                                                                     where=mask_falha_sensor, color='red', alpha=0.3, label='Alvo Culpado')
-                                            ax_sensor.legend(loc='upper left')
-                                            
+                                                starts = tempo_plot[mask_falha_sensor & ~mask_falha_sensor.shift(1, fill_value=False)]
+                                                ends = tempo_plot[mask_falha_sensor & ~mask_falha_sensor.shift(-1, fill_value=False)]
+                                                
+                                                for s, e in zip(starts, ends):
+                                                    fig_ia.add_vrect(x0=s, x1=e, fillcolor="red", opacity=0.3, layer="below", line_width=0, row=r, col=1)
+                                                
+                                                if i == 0:
+                                                    fig_ia.add_trace(go.Scatter(x=[None], y=[None], mode='markers', marker=dict(color='red', size=10, symbol='square'), name='Alvo Culpado'), row=r, col=1)
+
+                                            fig_ia.add_trace(go.Scatter(x=tempo_plot, y=df_alvo[sensor], name=sensor, line=dict(color='darkorange', width=2), hovertemplate=f'{sensor}: %{{y}}<br>Tempo: %{{x|%M:%S.%L}}<extra></extra>'), row=r, col=1)
+                                            fig_ia.update_yaxes(title_text=sensor, title_font=dict(color='darkorange', size=12, family="Arial Black"), row=r, col=1)
+
                                         # --- PAINEL FINAL: IA Global ---
-                                        ax_ia = axes[-1]
-                                        ax_ia.set_title("Avaliação Global (Cérebro da IA)", fontsize=12, color='black', fontweight='bold')
-                                        ax_ia.plot(tempo_real, df_alvo['Severidade_Final'], label='Gravidade (MSE)', color='black', linewidth=1.5)
-                                        ax_ia.plot(tempo_real, df_alvo['Limite_MAD_Estado'], color='red', linestyle='--', label=f'Threshold MAD', linewidth=2)
-                                        
+                                        last_r = num_paineis
                                         falha_geral_visual = df_alvo['Falha_Confirmada'].rolling(window=FREQ_HZ, center=True, min_periods=1).max() > 0
-                                        if falha_geral_visual.any():
-                                            ax_ia.fill_between(tempo_real, df_alvo['Severidade_Final'], df_alvo['Limite_MAD_Estado'], 
-                                                             where=falha_geral_visual, color='red', alpha=0.4, label='Falha Sistêmica Confirmada')
-                                                             
-                                        def formata_tempo_log(x, pos):
-                                            if np.isnan(x) or x < 0: return ""
-                                            minutos = int(x // 60)
-                                            segundos = int(x % 60)
-                                            return f"{minutos:02d}:{segundos:02d}"
-                                            
-                                        ax_ia.xaxis.set_major_formatter(ticker.FuncFormatter(formata_tempo_log))
-                                        ax_ia.set_xlabel('Tempo Real de Funcionamento (MM:SS)', fontsize=12, fontweight='bold')
-                                        ax_ia.set_ylabel('Gravidade', fontweight='bold')
-                                        ax_ia.legend(loc='upper left')
-                                        ax_ia.grid(True, alpha=0.3)
                                         
-                                        plt.tight_layout()
-                                        st.pyplot(fig)  # Mostra o gráfico perfeito do Matplotlib no site!
+                                        if falha_geral_visual.any():
+                                            starts = tempo_plot[falha_geral_visual & ~falha_geral_visual.shift(1, fill_value=False)]
+                                            ends = tempo_plot[falha_geral_visual & ~falha_geral_visual.shift(-1, fill_value=False)]
+                                            
+                                            for s, e in zip(starts, ends):
+                                                fig_ia.add_vrect(x0=s, x1=e, fillcolor="red", opacity=0.3, layer="below", line_width=0, row=last_r, col=1)
+                                            
+                                            fig_ia.add_trace(go.Scatter(x=[None], y=[None], mode='markers', marker=dict(color='red', size=10, symbol='square'), name='Falha Sistêmica'), row=last_r, col=1)
+
+                                        fig_ia.add_trace(go.Scatter(x=tempo_plot, y=df_alvo['Severidade_Final'], name='Gravidade (MSE)', line=dict(color='black', width=1.5), hovertemplate='Gravidade: %{y:.2f}<br>Tempo: %{x|%M:%S.%L}<extra></extra>'), row=last_r, col=1)
+                                        fig_ia.add_trace(go.Scatter(x=tempo_plot, y=df_alvo['Limite_MAD_Estado'], name='Threshold MAD', line=dict(color='red', dash='dash', width=2), hovertemplate='Threshold: %{y:.2f}<br>Tempo: %{x|%M:%S.%L}<extra></extra>'), row=last_r, col=1)
+                                        fig_ia.update_yaxes(title_text="Gravidade", title_font=dict(color='black', size=12, family="Arial Black"), row=last_r, col=1)
+
+                                        # --- FORMATAÇÃO GERAL PLOTLY ---
+                                        fig_ia.update_layout(
+                                            height=300 + (len(sensores_para_grafico) * 200),
+                                            template="plotly_white", 
+                                            margin=dict(l=40, r=40, t=50, b=80), 
+                                            hovermode="x unified",
+                                            showlegend=True,
+                                            legend=dict(orientation="h", yanchor="top", y=-0.05, xanchor="center", x=0.5) 
+                                        )
+                                        
+                                        # Máscara Mágica Temporal e remoção de títulos que sujavam o gráfico
+                                        fig_ia.update_xaxes(
+                                            tickformat="%H:%M:%S", 
+                                            hoverformat="%H:%M:%S.%L", 
+                                            showgrid=True, gridcolor='lightgray',
+                                            title_text="" 
+                                        )
+                                        
+                                        fig_ia.update_xaxes(title_text="Tempo Real da Gravação (HH:MM:SS)", title_font=dict(size=14, family="Arial Black"), row=last_r, col=1)
+                                        fig_ia.update_yaxes(showgrid=True, gridcolor='lightgray')
+                                        
+                                        st.plotly_chart(fig_ia, use_container_width=True)
 
                                         # --- RESPOSTA HUMANIZADA (LLM) ---
                                         if ENABLE_LLM_EXPLANATION and picos_falha > 0:
@@ -616,11 +633,11 @@ elif st.session_state.view == 'dashboard':
                                             st.markdown("### 🗣️ Explicação do Engenheiro Mestre (IA)")
                                             with st.spinner("A gerar explicação detalhada..."):
                                                 
-                                                # Leitura blindada da API Key para o Railway não travar
+                                                # Bloco extremamente seguro para não travar na Railway
                                                 chave_api = os.environ.get("GEMINI_API_KEY")
                                                 if not chave_api:
                                                     try:
-                                                        if os.path.exists(".streamlit/secrets.toml") or os.path.exists("/app/.streamlit/secrets.toml"):
+                                                        if "GEMINI_API_KEY" in st.secrets:
                                                             chave_api = st.secrets["GEMINI_API_KEY"]
                                                     except Exception:
                                                         chave_api = None
