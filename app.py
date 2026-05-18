@@ -678,18 +678,17 @@ elif st.session_state.view == 'dashboard':
                                                         genai.configure(api_key=chave_api)
                                                         
                                                         prompt = f"""
-                                                        Atue como um mecânico chefe e engenheiro muito experiente da Chevrolet, especialista em injeção eletrónica Multec 700 (Monza, Kadett, Ipanema).
-                                                        O nosso scanner de diagnóstico automático acabou de encontrar um defeito no log do carro do cliente.
+                                                        Atue como um especialista em injeção eletrónica Multec 700 (Monza, Kadett, Ipanema).
+                                                        O nosso scanner de diagnóstico automático acabou de encontrar uma anomalia no log do carro.
                                                         
-                                                        O laudo bruto da engenharia foi:
-                                                        Sintoma Físico Identificado: {texto_laudo_llm}
-                                                        Assinatura da Curva (DTW): {assinatura_dtw}
+                                                        O diagnóstico físico detetado foi:
+                                                        Sintoma Identificado: {texto_laudo_llm}
                                                         
-                                                        Com base nisto, escreva uma explicação direta, amigável e fácil de entender para o dono do carro.
-                                                        Sem vocabulário excessivamente complicado, mas mostrando autoridade técnica. 
-                                                        Explique o que o cliente provavelmente está a sentir a conduzir o carro (os sintomas visíveis).
-                                                        Termine com 3 recomendações claras (bullet points) do que ele deve pedir ao seu mecânico para verificar primeiro na oficina.
-                                                        Seja direto ao ponto, use negritos para realçar as peças e sintomas.
+                                                        Com base nisto, escreva uma explicação direta, natural e fácil de entender.
+                                                        Evite jargões excessivamente complicados e não crie personagens.
+                                                        Explique o que o condutor provavelmente está a sentir no comportamento do carro (os sintomas visíveis).
+                                                        Termine com recomendações claras (bullet points) do que deve ser verificado primeiro.
+                                                        Seja direto ao ponto e use negritos para realçar as peças e sintomas.
                                                         """
                                                         
                                                         # --- SISTEMA DE AUTO-DESCOBERTA DE MODELOS ---
@@ -713,8 +712,8 @@ elif st.session_state.view == 'dashboard':
                                                         llm_model = genai.GenerativeModel(modelo_escolhido)
                                                         resposta_llm = llm_model.generate_content(prompt)
                                                         
-                                                        st.success(f"*(Relatório gerado automaticamente pelo cérebro: {modelo_escolhido})*")
                                                         st.info(resposta_llm.text)
+                                                        st.caption("⚠️ *Nota: A Inteligência Artificial pode cometer erros de interpretação. Confirme sempre o diagnóstico com um profissional qualificado.*")
                                                         
                                                     else:
                                                         st.warning("⚠️ **Falta a Chave API no Servidor:** A chave não foi carregada pelo Python. **Solução:** Vá na Railway e faça um **Redeploy** manual da aplicação para injetar as variáveis salvas.")
