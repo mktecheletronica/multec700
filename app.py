@@ -301,7 +301,7 @@ elif st.session_state.view == 'dashboard':
                 col1, col2, col3, col4 = st.columns(4)
                 col1.metric("RPM Máximo", f"{df['RPM'].max():.0f} RPM")
                 col2.metric("Temp Máxima Água", f"{df['CTS (°C)'].max():.0f} °C")
-                col3.metric("MAP Máximo", f"{df['MAP (kPa)'].mean():.1f} kPa")
+                col3.metric("MAP Máximo", f"{df['MAP (kPa)'].max():.1f} kPa")
                 col4.metric("Velocidade Máxima", f"{df['VSS (km/h)'].max():.0f} km/h")
 
                 st.markdown("---")
