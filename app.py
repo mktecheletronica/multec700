@@ -553,68 +553,90 @@ elif st.session_state.view == 'dashboard':
                                         num_rows = 2 + len(sensores_para_grafico)
                                         specs = [[{"secondary_y": True}]] + [[{"secondary_y": False}]] * (num_rows - 1)
                                         
-                                        titulos_paineis = ["RPM vs TPS (%) - Arquivo Analisado"]
+                                        titulos_paineis = ["RPM vs TPS (%) - Estados do Motor"]
                                         for s in sensores_para_grafico:
                                             titulos_paineis.append(f"Monitorização de Falha: {s}")
-                                        titulos_paineis.append("Avaliação Cruzada (Cérebro Global da IA)")
+                                        titulos_paineis.append("Avaliação Global (Cérebro da IA)")
 
                                         fig_ia = make_subplots(rows=num_rows, cols=1, shared_xaxes=True, vertical_spacing=0.06, specs=specs, subplot_titles=titulos_paineis)
                                         
-                                        # A Mágica do Tempo: Usamos o Datetime index que o pipeline cria. O Plotly lida com ele perfeitamente!
+                                        # Usamos o Datetime index que o pipeline cria. O Plotly vai formata-lo para MM:SS
                                         tempo_plot = df_alvo.index 
                                         
                                         # --- PAINEL 1: Estados do Motor (Fundo colorido), RPM e TPS ---
                                         estados_cores = {'Idle': 'cyan', 'Cruise': 'gray', 'WOT': 'red', 'Decel': 'blue', 'Warmup': 'magenta'}
-                                        max_rpm = df_alvo['RPM'].max() * 1.1 if df_alvo['RPM'].max() > 0 else 6400
                                         
+                                        # Adicionar retângulos de fundo exatos para os Estados do Motor
                                         for estado, cor in estados_cores.items():
-                                            mask_estado = df_alvo['Estado_Motor'] == estado
-                                            if mask_estado.any():
-                                                # np.nan quebra o gráfico nos sítios onde é Falso, assim o fundo só pinta exatamente no momento do estado
-                                                y_bg_estado = np.where(mask_estado, max_rpm, np.nan)
-                                                fig_ia.add_trace(go.Scatter(x=tempo_plot, y=y_bg_estado, fill='tozeroy', mode='none', fillcolor=cor, opacity=0.15, name=f'Estado: {estado}', connectgaps=False, hoverinfo='skip'), row=1, col=1, secondary_y=False)
+                                            mask_est = df_alvo['Estado_Motor'] == estado
+                                            if mask_est.any():
+                                                # Encontra os blocos exatos onde o estado começa e acaba
+                                                starts = mask_est[mask_est & ~mask_est.shift(1, fill_value=False)].index
+                                                ends = mask_est[mask_est & ~mask_est.shift(-1, fill_value=False)].index
+                                                for s, e in zip(starts, ends):
+                                                    # Pintar a caixa perfeitamente (idêntico ao axvspan do Matplotlib)
+                                                    fig_ia.add_vrect(x0=s, x1=e, fillcolor=cor, opacity=0.15, layer="below", line_width=0, row=1, col=1)
+                                                
+                                                # Adiciona um marcador invisível só para forçar a legenda a mostrar a cor
+                                                fig_ia.add_trace(go.Scatter(x=[None], y=[None], mode='markers', marker=dict(color=cor, size=10, symbol='square'), name=f'Estado: {estado}'), row=1, col=1)
 
-                                        # Formatação limpa no rato: apenas os Minutos e Segundos reais do motor
-                                        fig_ia.add_trace(go.Scatter(x=tempo_plot, y=df_alvo['RPM'], name='RPM', line=dict(color='#1f77b4', width=2), hovertemplate='RPM: %{y}<br>Tempo: %{x|%M:%S.%L}<extra></extra>'), row=1, col=1, secondary_y=False)
-                                        fig_ia.add_trace(go.Scatter(x=tempo_plot, y=df_alvo['TPS (%)'], name='TPS (%)', line=dict(color='#2ca02c', width=2), opacity=0.7, hovertemplate='TPS: %{y}%<br>Tempo: %{x|%M:%S.%L}<extra></extra>'), row=1, col=1, secondary_y=True)
+                                        # Formatação de linha pura (sem as datas longas de 1970 no rato)
+                                        fig_ia.add_trace(go.Scatter(x=tempo_plot, y=df_alvo['RPM'], name='RPM', line=dict(color='#1f77b4', width=2)), row=1, col=1, secondary_y=False)
+                                        fig_ia.add_trace(go.Scatter(x=tempo_plot, y=df_alvo['TPS (%)'], name='TPS (%)', line=dict(color='#2ca02c', width=2)), row=1, col=1, secondary_y=True)
                                         
                                         # --- PAINÉIS DO MEIO: Sensores Culpados ---
                                         for i, sensor in enumerate(sensores_para_grafico):
                                             r = i + 2
                                             
-                                            # Rolling idêntico ao Matplotlib local. Se foi Falso, coloca np.nan e bloqueia conectividade (connectgaps=False).
-                                            mask_falha_sensor = (df_alvo['Falha_Confirmada'] & (df_alvo['Culpado_Final'] == sensor)).rolling(window=FREQ_HZ, center=True, min_periods=1).max() > 0
-                                            limite_superior = df_alvo[sensor].max() * 1.2 if df_alvo[sensor].max() > 0 else 10
-                                            y_bg_fault = np.where(mask_falha_sensor, limite_superior, np.nan)
+                                            # Filtrar as falhas DESTE sensor específico
+                                            mask_falha_sensor = df_alvo['Falha_Confirmada'] & (df_alvo['Culpado_Final'] == sensor)
+                                            # Rolling idêntico ao Matplotlib para suavizar pequenos picos
+                                            mask_falha_sensor = mask_falha_sensor.rolling(window=FREQ_HZ, center=True, min_periods=1).max() > 0
                                             
-                                            fig_ia.add_trace(go.Scatter(x=tempo_plot, y=y_bg_fault, fill='tozeroy', mode='none', fillcolor='rgba(255, 0, 0, 0.3)', name=f'Alvo ({sensor})', connectgaps=False, hoverinfo='skip'), row=r, col=1)
-                                            fig_ia.add_trace(go.Scatter(x=tempo_plot, y=df_alvo[sensor], name=sensor, line=dict(color='darkorange', width=2), hovertemplate=f'{sensor}: %{{y}}<br>Tempo: %{{x|%M:%S.%L}}<extra></extra>'), row=r, col=1)
+                                            # Adicionar retângulos vermelhos apenas nos exatos milissegundos de falha!
+                                            if mask_falha_sensor.any():
+                                                starts = mask_falha_sensor[mask_falha_sensor & ~mask_falha_sensor.shift(1, fill_value=False)].index
+                                                ends = mask_falha_sensor[mask_falha_sensor & ~mask_falha_sensor.shift(-1, fill_value=False)].index
+                                                for s, e in zip(starts, ends):
+                                                    fig_ia.add_vrect(x0=s, x1=e, fillcolor="red", opacity=0.3, layer="below", line_width=0, row=r, col=1)
+                                                
+                                            fig_ia.add_trace(go.Scatter(x=tempo_plot, y=df_alvo[sensor], name=sensor, line=dict(color='darkorange', width=2)), row=r, col=1)
                                             
                                         # --- PAINEL FINAL: IA Global (Gravidade vs Limites Dinâmicos) ---
                                         last_r = num_rows
                                         falha_geral_visual = df_alvo['Falha_Confirmada'].rolling(window=FREQ_HZ, center=True, min_periods=1).max() > 0
                                         
                                         if falha_geral_visual.any():
-                                            lim_ia_max = max(df_alvo['Severidade_Final'].max(), df_alvo['Limite_MAD_Estado'].max()) * 1.1
-                                            y_bg_geral = np.where(falha_geral_visual, lim_ia_max, np.nan)
-                                            fig_ia.add_trace(go.Scatter(x=tempo_plot, y=y_bg_geral, fill='tozeroy', mode='none', fillcolor='rgba(255, 0, 0, 0.3)', name='Falha Sistêmica', connectgaps=False, hoverinfo='skip'), row=last_r, col=1)
+                                            starts = falha_geral_visual[falha_geral_visual & ~falha_geral_visual.shift(1, fill_value=False)].index
+                                            ends = falha_geral_visual[falha_geral_visual & ~falha_geral_visual.shift(-1, fill_value=False)].index
+                                            for s, e in zip(starts, ends):
+                                                fig_ia.add_vrect(x0=s, x1=e, fillcolor="red", opacity=0.3, layer="below", line_width=0, row=last_r, col=1)
+                                                
+                                            # Marcador fantasma só para o quadradinho vermelho aparecer na legenda
+                                            fig_ia.add_trace(go.Scatter(x=[None], y=[None], mode='markers', marker=dict(color='red', size=10, symbol='square'), name='Área de Falha'), row=last_r, col=1)
 
                                         # Correcção: Linha de Gravidade a PRETO, assim como no Matplotlib
-                                        fig_ia.add_trace(go.Scatter(x=tempo_plot, y=df_alvo['Severidade_Final'], name='Gravidade (MSE)', line=dict(color='black', width=1.5), hovertemplate='Gravidade: %{y:.2f}<br>Tempo: %{x|%M:%S.%L}<extra></extra>'), row=last_r, col=1)
-                                        fig_ia.add_trace(go.Scatter(x=tempo_plot, y=df_alvo['Limite_MAD_Estado'], name='Threshold', line=dict(color='red', dash='dash', width=2), hovertemplate='Threshold: %{y:.2f}<br>Tempo: %{x|%M:%S.%L}<extra></extra>'), row=last_r, col=1)
+                                        fig_ia.add_trace(go.Scatter(x=tempo_plot, y=df_alvo['Severidade_Final'], name='Gravidade (MSE)', line=dict(color='black', width=1.5)), row=last_r, col=1)
+                                        fig_ia.add_trace(go.Scatter(x=tempo_plot, y=df_alvo['Limite_MAD_Estado'], name='Threshold', line=dict(color='red', dash='dash', width=2)), row=last_r, col=1)
 
                                         # --- FORMATAÇÃO GERAL E ESTÉTICA ---
                                         fig_ia.update_layout(
                                             height=300 + (len(sensores_para_grafico) * 200),
-                                            template="plotly_white", # FUNDO CLARO E LIMPO (Cores da versão local)
-                                            margin=dict(l=10, r=10, t=40, b=30),
+                                            template="plotly_white", # Fundo Branco (Limpo, como o antigo)
+                                            margin=dict(l=40, r=40, t=50, b=80), # Margem de fundo maior para acomodar legenda
                                             hovermode="x unified",
-                                            showlegend=True,         # Reativa a legenda
-                                            legend=dict(orientation="h", yanchor="bottom", y=1.01, xanchor="right", x=1) # Coloca no topo
+                                            showlegend=True,
+                                            # Legenda jogada para baixo e na horizontal, para não sobrepor os títulos!
+                                            legend=dict(orientation="h", yanchor="top", y=-0.1, xanchor="center", x=0.5) 
                                         )
                                         
-                                        # Força o Plotly a mostrar apenas os minutos e segundos nos eixos e grelhas
-                                        fig_ia.update_xaxes(tickformat="%M:%S", hoverformat="%M:%S.%L", showgrid=True, gridcolor='lightgray')
+                                        # Formatar TODOS os eixos X para mostrarem apenas MM:SS (Sem 1970)
+                                        fig_ia.update_xaxes(
+                                            tickformat="%M:%S", 
+                                            hoverformat="%M:%S.%L", 
+                                            showgrid=True, gridcolor='lightgray',
+                                            title_text="" # Removemos titulos do meio para o design ficar limpo
+                                        )
                                         fig_ia.update_xaxes(title_text="Tempo Real da Gravação (MM:SS)", row=last_r, col=1)
                                         fig_ia.update_yaxes(showgrid=True, gridcolor='lightgray')
                                         
@@ -626,14 +648,14 @@ elif st.session_state.view == 'dashboard':
                                             st.markdown("### 🗣️ Explicação do Engenheiro Mestre (IA)")
                                             with st.spinner("A gerar explicação detalhada..."):
                                                 try:
-                                                    # CORREÇÃO BLINDADA DO LLM: 
-                                                    # Evita que o Railway rebente ao tentar ler ficheiros secretos inexistentes.
+                                                    # CORREÇÃO DA LEITURA DE CHAVES (Blindado para a Railway)
                                                     chave_api = os.environ.get("GEMINI_API_KEY")
                                                     
+                                                    # Se não tiver nas variáveis de ambiente, tenta ler o ficheiro secrets localmente
                                                     if not chave_api:
                                                         try:
-                                                            # Apenas tenta ler o st.secrets silenciosamente
-                                                            chave_api = st.secrets.get("GEMINI_API_KEY")
+                                                            import streamlit.secrets as st_secrets
+                                                            chave_api = st_secrets.get("GEMINI_API_KEY")
                                                         except Exception:
                                                             chave_api = None
 
@@ -660,8 +682,7 @@ elif st.session_state.view == 'dashboard':
                                                     else:
                                                         st.warning("⚠️ API Key do Gemini ausente. Configure a variável 'GEMINI_API_KEY' na Railway para desbloquear o texto humanizado.")
                                                 except Exception as e_llm:
-                                                    st.error("⚠️ Ocorreu um erro ao comunicar com a Inteligência Artificial linguística (Gemini).")
-                                                    st.code(f"Detalhe Técnico do Servidor: {str(e_llm)}")
+                                                    st.warning("⚠️ O LLM está temporariamente desativado ou ocorreu um erro de conexão. (Pode ignorar isto por agora).")
 
                                 except Exception as err:
                                     st.error(f"❌ Ocorreu um erro inesperado durante a análise de IA: {err}")
