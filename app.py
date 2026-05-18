@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import requests
 import io
 import numpy as np
@@ -171,7 +172,7 @@ def carregar_dados(arquivo_ou_url_ou_conteudo, colunas):
 # ==============================================================================
 @st.cache_resource
 def carregar_cerebro_ia():
-    if not IA_DISPONIVEL: return None, None, None
+    if not IA_DISPONIVEL: return None, None, None, None, None
     try:
         scaler = joblib.load("scaler_multec.pkl")
         modelo = load_model("cerebro_multec_autoencoder.keras")
@@ -500,11 +501,14 @@ elif st.session_state.view == 'dashboard':
                                         
                                         texto_laudo_llm = ""
                                         assinatura_dtw = ""
+                                        sensores_para_grafico = []
 
                                         if picos_falha > 0:
                                             st.error(f"🚨 A IA detetou anomalias reais! ({picos_falha} frames confirmados, ~{picos_falha/FREQ_HZ:.1f} segundos)")
                                             
                                             falhas_fisicas = falhas_confirmadas[falhas_confirmadas['Culpado_Bruto'] != "IA_Genérica"]
+                                            falhas_ia = falhas_confirmadas[falhas_confirmadas['Culpado_Bruto'] == "IA_Genérica"]
+                                            
                                             if len(falhas_fisicas) > 0:
                                                 principal = falhas_fisicas['Diagnostico_Texto'].value_counts().index[0]
                                                 culpados = falhas_fisicas['Culpado_Final'].unique().tolist()
@@ -512,39 +516,117 @@ elif st.session_state.view == 'dashboard':
                                                 st.warning(f"**Sensores Culpados:** {culpados}")
                                                 texto_laudo_llm = principal
                                                 
+                                                sensores_para_grafico.extend(culpados)
+                                                
                                                 # ORQUESTRAÇÃO DTW (FASE 2)
                                                 df_recorte = df_alvo[df_alvo['Falha_Confirmada']].copy()
                                                 diag_dtw, distancia = biblioteca.classificar_anomalia(df_recorte, culpados)
                                                 assinatura_dtw = diag_dtw
                                                 st.info(f"**🎯 Análise de Curva (DTW):** {diag_dtw}")
-                                            else:
-                                                falhas_ia = falhas_confirmadas[falhas_confirmadas['Culpado_Bruto'] == "IA_Genérica"]
-                                                principal = falhas_ia['Culpado_Final'].value_counts().index[0]
-                                                st.warning(f"**🧠 Causa Raiz Estatística (IA):** Anomalia centrada em {principal}")
-                                                texto_laudo_llm = f"Desvio matemático grave focado no sensor {principal}"
-                                                assinatura_dtw = "Anomalia Não Mapeada"
+                                            
+                                            if len(falhas_ia) > 0:
+                                                principal_ia = falhas_ia['Culpado_Final'].value_counts().index[0]
+                                                st.warning(f"**🧠 Causa Raiz Estatística (IA):** Anomalia centrada em {principal_ia}")
+                                                
+                                                if len(falhas_fisicas) == 0:
+                                                    texto_laudo_llm = f"Desvio matemático grave focado no sensor {principal_ia}"
+                                                    assinatura_dtw = "Anomalia Não Mapeada"
+                                                
+                                                for sensor in falhas_ia['Culpado_Final'].unique():
+                                                    if sensor not in sensores_para_grafico and len(sensores_para_grafico) < 4:
+                                                        sensores_para_grafico.append(sensor)
                                         else:
                                             st.success("✅ A IA aprovou este log. Nenhuma anomalia grave ou desvio estatístico confirmado no motor.")
                                             texto_laudo_llm = "Nenhum problema encontrado. O motor está a funcionar perfeitamente dentro das tolerâncias físicas e estatísticas."
                                             assinatura_dtw = "Nenhuma"
 
-                                        # --- GRÁFICO DA IA EM PLOTLY ---
-                                        st.markdown("#### Gráfico de Tensão da Inteligência Artificial")
-                                        fig_ia = go.Figure()
+                                        # Remover duplicados e limitar a 4 sensores mantendo a ordem de inserção
+                                        sensores_para_grafico = list(dict.fromkeys(sensores_para_grafico))[:4]
+
+                                        # ==============================================================================
+                                        # --- GRÁFICO DA IA EM PLOTLY (IDÊNTICO AO RELATÓRIO NEURO-SIMBÓLICO) ---
+                                        # ==============================================================================
+                                        st.markdown("#### Relatório Neuro-Simbólico (Visão Gráfica Detalhada)")
                                         
-                                        # Para usar o eixo de tempo do df principal original (que já foi formatado em ms)
-                                        # Vamos criar um array de tempo fictício caso o merge de index falhe, apenas para visualização
+                                        # O pipeline original cria o index de tempo perfeitamente (00:00:00, 00:00:01...)
                                         tempo_plot = df_alvo.index if 'Tempo_Relogio' not in df_alvo.columns else df_alvo['Tempo_Relogio']
                                         
-                                        fig_ia.add_trace(go.Scatter(x=tempo_plot, y=df_alvo['Severidade_Final'], name='Erro de Reconstrução (MSE)', line=dict(color='yellow')))
-                                        fig_ia.add_trace(go.Scatter(x=tempo_plot, y=df_alvo['Limite_MAD_Estado'], name='Limite Tolerância Dinâmico', line=dict(color='red', dash='dash')))
-                                        
-                                        # Preenchimento das zonas de falha
-                                        df_plot_falha = df_alvo.copy()
-                                        df_plot_falha.loc[~df_plot_falha['Falha_Confirmada'], 'Severidade_Final'] = np.nan
-                                        fig_ia.add_trace(go.Scatter(x=tempo_plot, y=df_plot_falha['Severidade_Final'], fill='tonexty', mode='none', fillcolor='rgba(255,0,0,0.4)', name='Área de Falha Confirmada'))
+                                        num_paineis = 2 + len(sensores_para_grafico)
+                                        titulos_paineis = ["Visão Geral do Motor (RPM & TPS)"] 
+                                        titulos_paineis.extend([f"Monitorização de Falha: {s}" for s in sensores_para_grafico])
+                                        titulos_paineis.append("Avaliação Cruzada IA (Sensores + Tensões + Flags)")
 
-                                        fig_ia.update_layout(height=350, template="plotly_dark", margin=dict(l=10, r=10, t=30, b=10), hovermode="x unified")
+                                        fig_ia = make_subplots(
+                                            rows=num_paineis, cols=1, 
+                                            shared_xaxes=True, 
+                                            vertical_spacing=0.08,
+                                            subplot_titles=titulos_paineis,
+                                            specs=[[{"secondary_y": True}]] + [[{"secondary_y": False}]] * (num_paineis - 1)
+                                        )
+                                        
+                                        # --- PAINEL 1: RPM e TPS + Fundo dos Estados ---
+                                        fig_ia.add_trace(go.Scatter(x=tempo_plot, y=df_alvo['RPM'], name='RPM', line=dict(color='#1f77b4', width=2)), row=1, col=1, secondary_y=False)
+                                        fig_ia.add_trace(go.Scatter(x=tempo_plot, y=df_alvo['TPS (%)'], name='TPS (%)', line=dict(color='#2ca02c', width=1.5), opacity=0.7), row=1, col=1, secondary_y=True)
+
+                                        estados_cores = {
+                                            'Idle': 'rgba(0, 255, 255, 0.15)', 'Cruise': 'rgba(128, 128, 128, 0.15)', 
+                                            'WOT': 'rgba(255, 0, 0, 0.15)', 'Decel': 'rgba(0, 0, 255, 0.15)', 'Warmup': 'rgba(255, 0, 255, 0.15)'
+                                        }
+                                        for estado, cor in estados_cores.items():
+                                            onde = df_alvo['Estado_Motor'] == estado
+                                            if onde.any():
+                                                y_bg = np.where(onde, 6800, 0)
+                                                fig_ia.add_trace(go.Scatter(x=tempo_plot, y=y_bg, fill='tozeroy', mode='none', fillcolor=cor, name=f'Estado: {estado}', hoverinfo='skip', line_shape='hv'), row=1, col=1, secondary_y=False)
+
+                                        fig_ia.update_yaxes(title_text="RPM", title_font=dict(color="#1f77b4", size=11, family="Arial Black"), range=[0, 6800], row=1, col=1, secondary_y=False)
+                                        fig_ia.update_yaxes(title_text="TPS (%)", title_font=dict(color="#2ca02c", size=11, family="Arial Black"), range=[0, 100], row=1, col=1, secondary_y=True)
+
+                                        # --- PAINEL 2 a N-1: Sensores Culpados ---
+                                        for i, sensor in enumerate(sensores_para_grafico):
+                                            row = i + 2
+                                            fig_ia.add_trace(go.Scatter(x=tempo_plot, y=df_alvo[sensor], name=sensor, line=dict(color='darkorange', width=2)), row=row, col=1)
+
+                                            # Área Vermelha da Falha do Sensor Específico
+                                            falha_sensor = (df_alvo['Falha_Confirmada'] & (df_alvo['Culpado_Final'] == sensor)).rolling(window=FREQ_HZ, center=True, min_periods=1).max() > 0
+                                            if falha_sensor.any():
+                                                y_max = LIMITES_SENSORES.get(sensor, (df_alvo[sensor].min(), df_alvo[sensor].max() * 1.1))[1]
+                                                if pd.isna(y_max) or y_max == 0: y_max = 100
+                                                y_bg_sensor = np.where(falha_sensor, y_max, 0)
+                                                fig_ia.add_trace(go.Scatter(x=tempo_plot, y=y_bg_sensor, fill='tozeroy', mode='none', fillcolor='rgba(255,0,0,0.3)', name=f'Falha Alvo: {sensor}', hoverinfo='skip', line_shape='hv'), row=row, col=1)
+                                            
+                                            fig_ia.update_yaxes(title_text=sensor, title_font=dict(color="darkorange", size=11, family="Arial Black"), row=row, col=1)
+
+                                        # --- PAINEL N (Último): Gravidade da Falha IA ---
+                                        row_ia = num_paineis
+                                        fig_ia.add_trace(go.Scatter(x=tempo_plot, y=df_alvo['Severidade_Final'], name='Erro Reconstrução (MSE)', line=dict(color='white', width=1.5)), row=row_ia, col=1)
+                                        fig_ia.add_trace(go.Scatter(x=tempo_plot, y=df_alvo['Limite_MAD_Estado'], name='Threshold Dinâmico (MAD)', line=dict(color='red', width=2, dash='dash')), row=row_ia, col=1)
+
+                                        falha_geral_visual = df_alvo['Falha_Confirmada'].rolling(window=FREQ_HZ, center=True, min_periods=1).max() > 0
+                                        if falha_geral_visual.any():
+                                            # Truque para pintar a zona vermelha exata entre o Threshold e a Severidade
+                                            fig_ia.add_trace(go.Scatter(x=tempo_plot, y=np.where(falha_geral_visual, df_alvo['Limite_MAD_Estado'], np.nan), line=dict(width=0), showlegend=False, hoverinfo='skip'), row=row_ia, col=1)
+                                            fig_ia.add_trace(go.Scatter(x=tempo_plot, y=np.where(falha_geral_visual, df_alvo['Severidade_Final'], np.nan), fill='tonexty', mode='none', fillcolor='rgba(255,0,0,0.4)', name='Falha Sistêmica Confirmada', hoverinfo='skip'), row=row_ia, col=1)
+
+                                        fig_ia.update_yaxes(title_text="Gravidade", title_font=dict(color="white", size=11, family="Arial Black"), row=row_ia, col=1)
+
+                                        # --- Configurações Finais e Sincronia de Eixo X ---
+                                        tempo_inicial = tempo_plot.min()
+                                        range_inicial = [tempo_inicial, min(tempo_inicial + pd.Timedelta(minutes=1), tempo_plot.max())]
+
+                                        fig_ia.update_layout(
+                                            height=250 + (220 * (num_paineis - 1)), # Aumenta a altura dinamicamente pela qtd de painéis
+                                            template="plotly_dark",
+                                            margin=dict(l=20, r=20, t=60, b=20),
+                                            hovermode="x unified",
+                                            showlegend=True,
+                                            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                                        )
+
+                                        # Ajustar e formatar o Eixo X em todos os painéis para sincronizar com a Telemetria
+                                        for r in range(1, num_paineis + 1):
+                                            title = "Tempo (hh:mm:ss)" if r == num_paineis else None
+                                            fig_ia.update_xaxes(title_text=title, tickformat="%H:%M:%S", hoverformat="%H:%M:%S.%L", range=range_inicial, row=r, col=1)
+
                                         st.plotly_chart(fig_ia, use_container_width=True)
 
                                         # --- RESPOSTA HUMANIZADA (LLM) ---
