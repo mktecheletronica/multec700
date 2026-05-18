@@ -692,25 +692,15 @@ elif st.session_state.view == 'dashboard':
                                                         Seja direto ao ponto, use negritos para realçar as peças e sintomas.
                                                         """
                                                         
-                                                        # Sistema de Fallback de Modelos Ultra-Resiliente
-                                                        try:
-                                                            llm_model = genai.GenerativeModel('gemini-1.5-flash')
-                                                            resposta_llm = llm_model.generate_content(prompt)
-                                                        except Exception as e_model:
-                                                            try:
-                                                                # Fallback 1: Tenta o modelo 1.0 Pro moderno
-                                                                llm_model = genai.GenerativeModel('gemini-1.0-pro')
-                                                                resposta_llm = llm_model.generate_content(prompt)
-                                                            except Exception:
-                                                                # Fallback 2: Tenta a nomenclatura legada para bibliotecas desatualizadas
-                                                                llm_model = genai.GenerativeModel('gemini-pro')
-                                                                resposta_llm = llm_model.generate_content(prompt)
-                                                                
+                                                        # Execução direta com o modelo mais atualizado da Google (Sem Fallbacks que escondem o erro real)
+                                                        llm_model = genai.GenerativeModel('gemini-1.5-flash')
+                                                        resposta_llm = llm_model.generate_content(prompt)
                                                         st.info(resposta_llm.text)
+                                                        
                                                     else:
                                                         st.warning("⚠️ **Falta a Chave API no Servidor:** A chave não foi carregada pelo Python. **Solução:** Vá na Railway e faça um **Redeploy** manual da aplicação para injetar as variáveis salvas.")
                                                 except Exception as e_llm:
-                                                    st.error(f"⚠️ **Falha de Comunicação com a IA da Google!**\n\n**O erro relatado foi:** `{e_llm}`\n\n*Se o erro for 403 ou 400, verifique se sua API Key é válida. Se for 429, o limite gratuito de requisições foi atingido.*")
+                                                    st.error(f"⚠️ **Falha de Comunicação com a IA da Google!**\n\n**O erro relatado foi:** `{e_llm}`\n\n*Nota: Se o erro for 403, 400 ou 'API key not valid', verifique no Google AI Studio se sua chave tem as permissões corretas para o modelo gemini-1.5-flash e se ela não possui restrições.*")
 
                                 except Exception as err:
                                     st.error(f"❌ Ocorreu um erro inesperado durante a análise de IA: {err}")
