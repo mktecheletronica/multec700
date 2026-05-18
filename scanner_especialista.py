@@ -4,8 +4,8 @@ os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
 
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.ticker as ticker
+# import matplotlib.pyplot as plt
+# import matplotlib.ticker as ticker
 import tkinter as tk
 from tkinter import filedialog
 import io
