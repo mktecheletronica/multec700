@@ -1,21 +1,58 @@
-import os
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
-os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
-
+import streamlit as st
 import pandas as pd
-import numpy as np
-# import matplotlib.pyplot as plt
-# import matplotlib.ticker as ticker
-import tkinter as tk
-from tkinter import filedialog
+import plotly.express as px
+import plotly.graph_objects as go
+import requests
 import io
-import joblib
-import warnings
-from tensorflow.keras.models import load_model
+import numpy as np
+import time
 
-from data_pipeline import MultecDataPipeline
-from config_ia import COLUNAS_IA, SENSORES_CAUSA_RAIZ
+# ==============================================================================
+# 🔴 KILL SWITCHES (CONTROLOS DE SEGURANÇA) 🔴
+# Altere para False caso note alguma instabilidade no servidor ou queira desligar as funções
+# ==============================================================================
+ENABLE_AI_DIAGNOSIS = True       # Liga/Desliga todo o módulo de Inteligência Artificial
+ENABLE_LLM_EXPLANATION = True    # Liga/Desliga apenas a resposta humanizada (ChatGPT/Gemini)
 
+# ==============================================================================
+# TENTATIVA DE IMPORTAÇÃO DOS MÓDULOS DE IA (Isolado para não quebrar a app)
+# ==============================================================================
+IA_DISPONIVEL = False
+if ENABLE_AI_DIAGNOSIS:
+    try:
+        import joblib
+        import warnings
+        import os
+        os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+        from tensorflow.keras.models import load_model
+        import google.generativeai as genai
+        
+        # IMPORTANTE: Requer 'matplotlib' no requirements.txt
+        import matplotlib.pyplot as plt
+        import matplotlib.ticker as ticker
+        
+        # Módulos locais do projeto 
+        from data_pipeline import MultecDataPipeline
+        from config_ia import COLUNAS_IA, SENSORES_CAUSA_RAIZ
+        from scanner_especialista import MecanicoEspecialista_Multec700, calcular_mad_threshold, COLUNAS as COLUNAS_SCANNER
+        from biblioteca_dtw import BibliotecaDefeitosDTW
+        
+        IA_DISPONIVEL = True
+    except Exception as e:
+        IA_DISPONIVEL = False
+        ERRO_CARREGAMENTO_IA = str(e)
+
+
+# --- Configuração Inicial da Página ---
+st.set_page_config(page_title="Visualizador de LOG's Multec 700 DashBoard 3.0", layout="wide", initial_sidebar_state="expanded")
+
+# --- Inicialização do Estado (Navegação) ---
+if 'view' not in st.session_state:
+    st.session_state.view = 'dashboard'  
+if 'log_selecionado' not in st.session_state:
+    st.session_state.log_selecionado = None
+
+# --- Mapeamento das 53 Colunas ---
 COLUNAS = [
     "RTM (s)", "RPM", "CTS (°C)", "CTS (V)", "VSS (km/h)", "TPS (%)", "TPS (V)", 
     "Bateria (V)", "CO2 (V)", "Avanço (°)", "Memcal ID", "BPW (ms)", "MAP (V)", 
@@ -31,347 +68,659 @@ COLUNAS = [
     "Versão_HW"
 ]
 
-def calcular_mad_threshold(erros, multiplicador=5.0):
-    if len(erros) == 0: return 2.0
-    mediana = np.median(erros)
-    mad = np.median(np.abs(erros - mediana))
-    limite = mediana + (multiplicador * mad)
-    return max(limite, 2.0) 
+LIMITES_SENSORES = {
+    "RPM": (0, 6800), "CTS (°C)": (0, 130), "CTS (V)": (0.0, 5.0), "VSS (km/h)": (0, 240),
+    "TPS (%)": (0, 100), "TPS (V)": (0.0, 5.0), "Bateria (V)": (8.0, 15.0), "CO2 (V)": (0.0, 5.0), 
+    "Avanço (°)": (0, 40), "BPW (ms)": (0.0, 20.0), "MAP (V)": (0.0, 5.0), "AFR Partida": (4.0, 18.0),
+    "AFR Atual": (4.0, 18.0), "IAC (Passos)": (0, 200), "Marcha Lenta Ideal": (800, 2000),
+    "Pressão Atm (V)": (0.0, 5.0), "MAP (kPa)": (10, 105), "Pressão Atm (kPa)": (50, 105),
+    "Consumo_Inst (L/h)": (0.0, 20.0),
+}
 
-# ==============================================================================
-# O MESTRE MECÂNICO (Regras Físicas Hard-Coded)
-# ==============================================================================
-class MecanicoEspecialista_Multec700:
-    def __init__(self):
-        self.LIMITES = {
-            'CTS_MAX_PERMITIDO': 102, 
-            'RPM_MAX_SEM_CARGA': 2500, 
-            'BATERIA_MIN_LIGADO': 12.0  
-        }
+MEMCAL_MAP = {
+    3659: "MODULO APZJ 16133659 - MONZA 1.8 MANUAL GAS",
+    3679: "MODULO APZL 16133679 - MONZA 1.8 MANUAL ALC",
+    7939: "MODULO ARXC 16137939 - KADETT 1.8 MANUAL GAS",
+    1049: "MODULO BCAM 16181049 - KADETT 2.0 MANUAL GAS",
+    7959: "MODULO ARXF 16137959 - KADETT 1.8 MANUAL ALC",
+    8699: "MODULO AWXW 16158699 - KADETT 1.8 AUTOM. GAS",
+    3469: "MODULO BFXJ 16193469 - KADETT/IPANEMA 2.0 AUT. GAS",
+    3709: "MODULO APZP 16133709 - MONZA 2.0 AUTOM. GAS",
+    6009: "MODULO AYMN 16166009 - MONZA 2.0 MANUAL ALC",
+    7409: "MODULO BBAA 16177409 - MONZA 1.8 MANUAL ALC",
+    7399: "MODULO BAZZ 16177399 - KADETT 1.8 MANUAL ALC",
+    3699: "MODULO AYBC 16133699 - MONZA 2.0 MANUAL GAS",
+    3719: "MODULO AYBD 16133719 - MONZA 2.0 MANUAL ALC",
+    5999: "MODULO AYMM 16165999 - MONZA/KADETT 2.0 MANUAL GAS",
+    7419: "MODULO BBAB 16177419 - MONZA/KADETT 2.0 MANUAL ALC",
+    2949: "MODULO BKSY 16202949 - MONZA/KADETT 1.8 MANUAL GAS",
+    2829: "MODULO BKSJ 16202829 - MONZA/KADETT 2.0 MANUAL GAS",
+    9579: "MODULO 9579 - MONZA 2.0 MANUAL GAS (EXPORT. ARGENTINA)"
+}
 
-    def auditar_diagnostico_ia(self, linha_dados):
-        rpm = linha_dados['RPM']
-        tps = linha_dados['TPS (%)']
-        map_kpa = linha_dados['MAP (kPa)']
-        cts = linha_dados['CTS (°C)']
-        vss = linha_dados['VSS (km/h)']
-        bateria = linha_dados['Bateria (V)']
-        ml_ideal = linha_dados['Marcha Lenta Ideal']
-        iac_passos = linha_dados['IAC (Passos)']
-        fan1 = linha_dados['Flag_Fan1']
-        fan2 = linha_dados['Flag_Fan2']
-        
-        delta_rpm_frame = linha_dados.get('Feature_Delta_RPM', 0)
-        co2_diff = linha_dados.get('CO2_Diff', 0) 
-
-        # === 1. LEIS ELÉTRICAS E RUÍDO ===
-        if abs(co2_diff) > 0.08:
-            return "Sinal do Potenciómetro de CO2 Oscilando (Mau Contato/Chicote)", "CO2 (V)"
-
-        if abs(delta_rpm_frame) > 500:
-            return "Ruído Severo no Sinal de Rotação (Ímã Rachado / Bobina Impulsora / HEI)", "RPM"
-
-        if rpm > self.LIMITES['RPM_MAX_SEM_CARGA'] and tps < 5.0 and vss < 5:
-            return "Aceleração Falsa (Sensor TPS mentindo fechado)", "RPM"
-
-        if cts > self.LIMITES['CTS_MAX_PERMITIDO']:
-            return "Superaquecimento do Motor", "CTS (°C)"
-
-        if bateria < self.LIMITES['BATERIA_MIN_LIGADO'] and rpm > 600:
-            if (fan1 == 1 or fan2 == 1) and bateria > 11.5:
-                pass 
-            else:
-                return "Queda Crítica de Tensão (Bateria/Alternador)", "Bateria (V)"
-
-        # === 2. REGRAS DE MARCHA LENTA ===
-        if tps < 2.0 and vss < 2:
-            
-            # REGRA ABSOLUTA DE VÁCUO
-            limite_map = 40 if cts > 70 else 45 
-            
-            if map_kpa > limite_map and rpm < 1000:
-                return "Vácuo Fraco na Marcha Lenta (Entrada de Ar, Sincronismo ou Ponto Atrasado)", "MAP (kPa)"
-            
-            if cts > 70: 
-                desvio_lenta = rpm - ml_ideal
-                
-                if desvio_lenta > 250 and iac_passos < 15:
-                    return "Entrada de Ar Falso (RPM alto, IAC no limite inferior)", "MAP (kPa)"
-                
-                elif desvio_lenta < -200 and iac_passos > 80:
-                    return "Queda Crítica (Falta Combustível ou IAC fisicamente travado)", "IAC (Passos)"
-
-        return "Normal", "Nenhum"
-
-def formata_tempo_log(x, pos):
-    if np.isnan(x) or x < 0: return ""
-    minutos = int(x // 60)
-    segundos = int(x % 60)
-    return f"{minutos:02d}:{segundos:02d}"
-
-# ==============================================================================
-# SCANNER PRINCIPAL
-# ==============================================================================
-def executar_scanner_especialista():
-    print("="*70)
-    print("🧠 INICIANDO SCANNER NEURO-SIMBÓLICO (Fase 1 - Fronteiras Físicas Apertadas)")
-    print("="*70)
-
-    FREQ_HZ = 6
-    ficheiro_modelo = "cerebro_multec_autoencoder.keras"
-    ficheiro_scaler = "scaler_multec.pkl"
-    dataset_master = "DATASET_FINAL_MULTEC_IA.csv"
-    
+@st.cache_data(ttl=60)
+def carregar_lista_logs_publicos():
+    sheet_id = "1dOhOKjJlnPAJNdUC2lAH9JUGzjYzuKaB-18_e1g6kdw"
+    url_planilha = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv"
     try:
-        print("1. A carregar Inteligência Artificial e Scaler...")
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore") 
-            scaler = joblib.load(ficheiro_scaler)
-            
-        modelo = load_model(ficheiro_modelo)
-        
-        df_master = pd.read_csv(dataset_master, sep=";")
-        df_saudavel = df_master[df_master['Meta_Status_Geral'] == 0].copy()
-        
-        saudaveis_norm = scaler.transform(df_saudavel[COLUNAS_IA])
-        saudaveis_recon = modelo.predict(saudaveis_norm, verbose=0)
-        
-        df_saudavel['Erro_IA'] = np.mean(np.power(saudaveis_norm - saudaveis_recon, 2), axis=1)
+        df = pd.read_csv(url_planilha)
+        num_colunas = len(df.columns)
+        if num_colunas >= 16:
+            df.columns = [
+                "Data/Hora", "ID", "Duração", "Usuário", "Veículo", "Comentário", "Obs_Moderador", 
+                "Status_Geral", "Tipo_Trajeto", "F_Engasgo", "F_Partida", "F_Potencia", 
+                "F_MarchaLenta", "F_Apagando", "F_Consumo", "ID_Arquivo"
+            ]
+        df = df.fillna("")
+        return df
+    except Exception:
+        return pd.DataFrame()
 
-        limites_por_estado = {}
-        for estado in ['Idle', 'Cruise', 'Decel', 'WOT', 'Warmup']:
-            erros_estado = df_saudavel[df_saudavel['Estado_Motor'] == estado]['Erro_IA'].values
-            mult = 6.0 if estado == 'Warmup' else 5.0
-            limites_por_estado[estado] = calcular_mad_threshold(erros_estado, multiplicador=mult)
-            
-        limite_global_mad = calcular_mad_threshold(df_saudavel['Erro_IA'].values, multiplicador=5.0)
-
-    except Exception as e:
-        print(f"\n❌ Erro crítico no carregamento da IA: {e}")
-        return None # Importante: Retorna None em caso de falha
-
-    print("\n2. Aguardando a seleção do arquivo de LOG do cliente...")
-    root = tk.Tk()
-    root.withdraw() 
-    log_cliente_cru = filedialog.askopenfilename(title="Selecione o arquivo de LOG", filetypes=[("Arquivos de Texto", "*.txt")])
-    
-    if not log_cliente_cru: 
-        return None # Importante: Retorna None se o utilizador cancelar
-    
-    with open(log_cliente_cru, 'r', encoding='utf-8', errors='ignore') as f:
-        linhas_validas = [l for l in f.read().split('\n') if len(l.split('|')) == len(COLUNAS)]
-    df_cru = pd.read_csv(io.StringIO('\n'.join(linhas_validas)), sep="|", header=None, names=COLUNAS)
-    
-    print("\n3. A injetar dados no Pipeline Central...")
-    pipeline = MultecDataPipeline(target_freq_hz=FREQ_HZ)
-    df_alvo = pipeline.processar_log(df_cru)
-    
-    # Prepara as derivadas absolutas
-    df_alvo['CO2_Diff'] = df_alvo['CO2 (V)'].diff().fillna(0)
-    df_alvo['TPS_Diff_Abs'] = df_alvo['TPS (%)'].diff().fillna(0).abs()
-    df_alvo['RPM_Diff_Abs'] = df_alvo['RPM'].diff().fillna(0).abs()
-    
-    df_alvo['Bateria_Diff_Abs'] = df_alvo['Bateria (V)'].diff().fillna(0).abs()
-    df_alvo['MAP_V_Diff_Abs'] = df_alvo['MAP (V)'].diff().fillna(0).abs()
-    df_alvo['MAP_kPa_Diff_Abs'] = df_alvo['MAP (kPa)'].diff().fillna(0).abs()
-    df_alvo['CTS_V_Diff_Abs'] = df_alvo['CTS (V)'].diff().fillna(0).abs()
-    df_alvo['CTS_C_Diff_Abs'] = df_alvo['CTS (°C)'].diff().fillna(0).abs()
-    df_alvo['TPS_V_Diff_Abs'] = df_alvo['TPS (V)'].diff().fillna(0).abs()
-
-    print("4. A calcular Erros Residuais Brutos...")
-    dados_normalizados = scaler.transform(df_alvo[COLUNAS_IA])
-    dados_reconstruidos = modelo.predict(dados_normalizados, verbose=0)
-    
-    erros_individuais_brutos = np.power(dados_normalizados - dados_reconstruidos, 2)
-    df_erros_individuais = pd.DataFrame(erros_individuais_brutos, columns=COLUNAS_IA, index=df_alvo.index)
-    
-    df_alvo['Erro_IA_Pura'] = np.mean(erros_individuais_brutos, axis=1)
-    df_alvo['Limite_MAD_Estado'] = df_alvo['Estado_Motor'].map(limites_por_estado).fillna(limite_global_mad)
-
-    mestre = MecanicoEspecialista_Multec700()
-    diagnosticos, sensores_culpados_brutos, grau_severidade = [], [], []
-
-    for index, linha in df_alvo.iterrows():
-        erro_ia = linha['Erro_IA_Pura']
-        limite_ia = linha['Limite_MAD_Estado']
-        
-        diag, sensor = mestre.auditar_diagnostico_ia(linha)
-        
-        if diag != "Normal":
-            diagnosticos.append(diag)
-            sensores_culpados_brutos.append(sensor)
-            grau_severidade.append(limite_ia * 3) 
-        elif erro_ia > limite_ia:
-            diagnosticos.append("Anomalia Sistémica/Estatística (IA)")
-            sensores_culpados_brutos.append("IA_Genérica") 
-            grau_severidade.append(erro_ia)
+@st.cache_data
+def carregar_dados(arquivo_ou_url_ou_conteudo, colunas):
+    try:
+        if isinstance(arquivo_ou_url_ou_conteudo, str):
+            if arquivo_ou_url_ou_conteudo.startswith("http"):
+                resposta = requests.get(arquivo_ou_url_ou_conteudo)
+                resposta.raise_for_status()
+                texto_cru = resposta.text
+            else:
+                texto_cru = arquivo_ou_url_ou_conteudo
         else:
-            diagnosticos.append("Normal")
-            sensores_culpados_brutos.append("Nenhum")
-            grau_severidade.append(0)
+            if hasattr(arquivo_ou_url_ou_conteudo, 'seek'):
+                arquivo_ou_url_ou_conteudo.seek(0)
+            texto_cru = arquivo_ou_url_ou_conteudo.read()
+            if isinstance(texto_cru, bytes):
+                texto_cru = texto_cru.decode('utf-8', errors='ignore')
+        
+        linhas_validas = []
+        qtd_esperada = len(colunas)
+        for linha in texto_cru.split('\n'):
+            linha = linha.strip()
+            if not linha: continue
+            campos = linha.split('|')
+            if len(campos) == qtd_esperada:
+                linhas_validas.append(linha)
+                
+        if not linhas_validas: return None
 
-    df_alvo['Severidade_Final'] = grau_severidade
-    df_alvo['Diagnostico_Texto'] = diagnosticos
-    df_alvo['Culpado_Bruto'] = sensores_culpados_brutos
-    df_alvo['Culpado_Final'] = df_alvo['Culpado_Bruto']
+        conteudo_limpo = io.StringIO('\n'.join(linhas_validas))
+        df = pd.read_csv(conteudo_limpo, sep="|", header=None, names=colunas)
+        
+        df["RTM (s)"] = pd.to_numeric(df["RTM (s)"], errors="coerce")
+        df = df.dropna(subset=["RTM (s)"]).copy()
+        df = df[df["RTM (s)"] > 0].copy()
+        df = df.sort_values(by="RTM (s)").reset_index(drop=True)
+        
+        if len(df) > 1:
+            diferencas = df["RTM (s)"].diff()
+            if diferencas.head(10).max() > 10:
+                idx_salto = diferencas.head(10).idxmax()
+                df = df.iloc[idx_salto:].reset_index(drop=True)
+        
+        counts = df.groupby("RTM (s)")["RTM (s)"].transform('count')
+        cumcounts = df.groupby("RTM (s)").cumcount()
+        df["RTM_Continuo"] = df["RTM (s)"] + (cumcounts / counts)
+        df["Tempo_Relogio"] = pd.to_datetime(df["RTM_Continuo"], unit='s')
+        
+        return df
+    except Exception as e:
+        st.error(f"Erro ao processar o arquivo: {e}")
+        return None
+
+@st.cache_resource
+def carregar_cerebro_ia():
+    if not IA_DISPONIVEL: return None, None, None, None, None
+    try:
+        scaler = joblib.load("scaler_multec.pkl")
+        modelo = load_model("cerebro_multec_autoencoder.keras")
+        pipeline = MultecDataPipeline(target_freq_hz=6)
+        mestre = MecanicoEspecialista_Multec700()
+        biblioteca = BibliotecaDefeitosDTW()
+        return scaler, modelo, pipeline, mestre, biblioteca
+    except Exception as e:
+        st.error(f"Falha ao carregar pesos da IA: {e}")
+        return None, None, None, None, None
+
+
+# ==========================================
+# BARRA LATERAL (MENU DE NAVEGAÇÃO)
+# ==========================================
+with st.sidebar:
+    st.markdown("<p style='text-align: center; font-size: 15px; font-weight: bold; margin-top: 10px; color: #cccccc;'>Visualizador de LOG's<br>Multec 700 DashBoard 3.0</p>", unsafe_allow_html=True)
+    st.markdown("---")
     
-    # === O CRIVO DE SANIDADE TOTAL ===
-    mask_ia = df_alvo['Culpado_Bruto'] == 'IA_Genérica'
-    if mask_ia.any():
-        max_sensors = df_erros_individuais.loc[mask_ia, SENSORES_CAUSA_RAIZ].idxmax(axis=1)
-        max_erros = df_erros_individuais.loc[mask_ia, SENSORES_CAUSA_RAIZ].max(axis=1)
-        
-        valid_ia_mask = mask_ia & (max_erros > 6.0)
-        
-        # DEFINIÇÃO DE CARGA MECÂNICA REAL: Condutor pisou no pedal OU carro está em movimento.
-        carga_real = (df_alvo['TPS (%)'] >= 2.0) | (df_alvo['VSS (km/h)'] >= 2)
-        
-        falso_tps = valid_ia_mask & (max_sensors == 'TPS (%)') & (df_alvo['TPS_Diff_Abs'] < 30.0)
-        falso_tps_v = valid_ia_mask & (max_sensors == 'TPS (V)') & (df_alvo['TPS_V_Diff_Abs'] < 1.5)
-        falso_rpm = valid_ia_mask & (max_sensors == 'RPM') & (df_alvo['RPM_Diff_Abs'] < 300)
-        falso_bat = valid_ia_mask & (max_sensors == 'Bateria (V)') & (df_alvo['Bateria_Diff_Abs'] < 0.5)
-        
-        falso_map_v = valid_ia_mask & (max_sensors == 'MAP (V)') & (df_alvo['MAP_V_Diff_Abs'] < 1.5) & carga_real
-        falso_map_kpa = valid_ia_mask & (max_sensors == 'MAP (kPa)') & (df_alvo['MAP_kPa_Diff_Abs'] < 30.0) & carga_real
-        
-        falso_cts_v = valid_ia_mask & (max_sensors == 'CTS (V)') & (df_alvo['CTS_V_Diff_Abs'] < 0.2)
-        falso_cts_c = valid_ia_mask & (max_sensors == 'CTS (°C)') & (df_alvo['CTS_C_Diff_Abs'] < 2.0)
-        
-        invalidos = falso_tps | falso_rpm | falso_bat | falso_map_v | falso_map_kpa | falso_cts_v | falso_cts_c | falso_tps_v
-        
-        valid_ia_mask = valid_ia_mask & ~invalidos
-        invalid_ia_mask = mask_ia & ~valid_ia_mask
-        
-        df_alvo.loc[valid_ia_mask, 'Culpado_Final'] = max_sensors[valid_ia_mask]
-        
-        df_alvo.loc[invalid_ia_mask, 'Culpado_Final'] = "Nenhum"
-        df_alvo.loc[invalid_ia_mask, 'Culpado_Bruto'] = "Nenhum"
-        df_alvo.loc[invalid_ia_mask, 'Diagnostico_Texto'] = "Normal"
-        df_alvo.loc[invalid_ia_mask, 'Severidade_Final'] = 0
+    st.header("Navegação")
+    if st.button("📊 Arquivo Local", use_container_width=True):
+        st.session_state.view = 'dashboard'
+        st.rerun()
 
-    frames_persistencia = max(2, int(FREQ_HZ * 0.4)) 
-    anomalia_instantanea = df_alvo['Severidade_Final'] > df_alvo['Limite_MAD_Estado']
-    df_alvo['Falha_Confirmada'] = anomalia_instantanea.rolling(window=frames_persistencia, min_periods=1).min() > 0
-
-    margem = FREQ_HZ * 2 
-    n_start, n_end = min(margem, len(df_alvo)), min(margem, len(df_alvo))
-    df_alvo.iloc[:n_start, df_alvo.columns.get_loc('Falha_Confirmada')] = False
-    df_alvo.iloc[-n_end:, df_alvo.columns.get_loc('Falha_Confirmada')] = False
-
-    # =================================================================
-    # EMISSÃO DO LAUDO
-    # =================================================================
-    print("\n" + "="*70)
-    print(f"🚨 RESULTADO DO DIAGNÓSTICO ESTATÍSTICO:")
+    if st.button("🌐 LOG's da Comunidade", use_container_width=True):
+        st.session_state.view = 'comunidade'
+        st.rerun()
     
-    falhas_confirmadas = df_alvo[df_alvo['Falha_Confirmada']]
-    picos_falha = len(falhas_confirmadas)
-    sensores_para_grafico = []
+    st.markdown("---")
+    
+    if st.session_state.view == 'dashboard':
+        st.header("📂 Enviar Arquivo Log")
+        arquivo_local = st.file_uploader("Selecione o arquivo .TXT", type=["txt"])
+        
+        if arquivo_local:
+            try:
+                conteudo = arquivo_local.getvalue().decode('utf-8', errors='ignore')
+                linhas = [l for l in conteudo.split('\n') if l.strip()]
+                
+                if not linhas:
+                    st.error("❌ O arquivo selecionado está vazio.")
+                else:
+                    ultima_linha = linhas[-1].split('|')
+                    if len(ultima_linha) < 53:
+                        st.error("❌ Arquivo incompatível! Este log parece pertencer a uma versão antiga ou não é compatível.")
+                    else:
+                        versao_hardware = str(ultima_linha[52]).strip()
+                        if not versao_hardware.startswith('3.') and not versao_hardware.startswith('4.'):
+                            st.error(f"❌ Versão do arquivo não suportada ({versao_hardware}). Necessita de DashBoard versão 3.0+.")
+                        else:
+                            st.session_state.log_selecionado = conteudo
+            except Exception as e:
+                st.error("❌ Erro ao tentar ler a assinatura do arquivo. Arquivo corrompido.")
 
-    if picos_falha > 0:
-        print(f"Confirmados {picos_falha} frames de falha persistente (Aprox. {picos_falha/FREQ_HZ:.1f} segundos).")
+    st.markdown("<br><br>", unsafe_allow_html=True)
+
+# ==========================================
+# ÁREA PRINCIPAL DO APLICATIVO
+# ==========================================
+if st.session_state.view == 'comunidade':
+    st.title("LOG's da Comunidade Multec 700")
+    st.write("Clique no botão à esquerda da linha de registro do Log que deseja visualizar.")
+    
+    df_publicos = carregar_lista_logs_publicos()
+    
+    if not df_publicos.empty:
+        event = st.dataframe(
+            df_publicos,
+            column_order=["Data/Hora", "Duração", "Usuário", "Veículo", "Comentário", "Obs_Moderador"],
+            column_config={
+                "Data/Hora": st.column_config.TextColumn("Data de Registo", width=130),
+                "Duração": st.column_config.TextColumn("Duração do Registo", width=130),
+                "Usuário": st.column_config.TextColumn("Enviado por", width=150),
+                "Veículo": st.column_config.TextColumn("Modelo", width=250),
+                "Comentário": st.column_config.TextColumn("Observações do Utilizador", width=550),
+                "Obs_Moderador": st.column_config.TextColumn("Observações do Moderador", width=750),
+                "ID": None, "Status_Geral": None, "Tipo_Trajeto": None,
+                "F_Engasgo": None, "F_Partida": None, "F_Potencia": None,
+                "F_MarchaLenta": None, "F_Apagando": None, "F_Consumo": None, "ID_Arquivo": None
+            },
+            hide_index=True,
+            use_container_width=True, 
+            on_select="rerun",
+            selection_mode="single-row",
+            height=600
+        )
         
-        falhas_fisicas = falhas_confirmadas[falhas_confirmadas['Culpado_Bruto'] != "IA_Genérica"]
-        falhas_ia = falhas_confirmadas[falhas_confirmadas['Culpado_Bruto'] == "IA_Genérica"]
-        
-        if len(falhas_fisicas) > 0:
-            print("\n🛠️ DIAGNÓSTICO DO MESTRE MECÂNICO (Violação de Leis Físicas):")
-            for falha, count in falhas_fisicas['Diagnostico_Texto'].value_counts().items():
-                print(f"   -> [ {falha} ] (Aprox. {count/FREQ_HZ:.1f} seg)")
-            sensores_para_grafico.extend(falhas_fisicas['Culpado_Final'].unique().tolist())
-        
-        if len(falhas_ia) > 0:
-            print("\n🧠 ATRIBUIÇÃO DE CAUSA RAIZ PELA IA (Quebra de Correlação com as Flags):")
-            for sensor, count in falhas_ia['Culpado_Final'].value_counts().items():
-                print(f"   -> {sensor} (Aprox. {count/FREQ_HZ:.1f} seg)")
-                if sensor not in sensores_para_grafico and len(sensores_para_grafico) < 4:
-                    sensores_para_grafico.append(sensor)
+        if len(event.selection.rows) > 0:
+            idx = event.selection.rows[0]
+            id_arq = df_publicos.iloc[idx]['ID_Arquivo']
+            st.session_state.log_selecionado = f"https://drive.google.com/uc?export=download&id={id_arq}"
+            st.session_state.view = 'dashboard'
+            st.rerun()
+            
     else:
-        print("✅ O motor e a parte elétrica funcionaram perfeitamente. Nenhuma anomalia detetada.")
-        sensores_para_grafico = [] 
-    print("="*70)
+        st.warning("Nenhum log público foi encontrado ou a base de dados encontra-se vazia.")
 
-    # ==============================================================================
-    # GERAÇÃO DO RELATÓRIO VISUAL
-    # ==============================================================================
-    ESCALAS = {
-        'RPM': (0, 6400), 'TPS (%)': (0, 100), 'TPS (V)': (0, 5), 'CTS (°C)': (0, 110), 'CTS (V)': (0, 5),
-        'MAP (kPa)': (10, 105), 'MAP (V)': (0, 5), 'Bateria (V)': (8, 16), 'IAC (Passos)': (0, 160),
-        'CO2 (V)': (0, 5)
-    }
-
-    print("\n5. A gerar o relatório visual...")
-    
-    tempo_real = df_alvo['RTM (s)'].to_numpy()
-    sensores_para_grafico = sensores_para_grafico[:4]
-    
-    num_paineis = 2 + len(sensores_para_grafico)
-    fig, axes = plt.subplots(num_paineis, 1, figsize=(15, 3.5 * num_paineis), sharex=True)
-    if not isinstance(axes, (list, np.ndarray)): axes = [axes]
+elif st.session_state.view == 'dashboard':
+    if st.session_state.log_selecionado is not None:
+        df = carregar_dados(st.session_state.log_selecionado, COLUNAS)
         
-    nome_curto = log_cliente_cru.split("/")[-1].split("\\")[-1]
-    
-    ax1 = axes[0]
-    ax1.plot(tempo_real, df_alvo['RPM'], label='RPM', color='#1f77b4')
-    ax1.set_ylim(*ESCALAS['RPM'])
-    ax1.set_ylabel('RPM', color='#1f77b4', fontweight='bold')
-    ax1.set_title(f"Arquivo Analisado: {nome_curto}", fontsize=14, fontweight='bold', color='gray')
-    ax1.grid(True, alpha=0.3)
-    
-    ax1_2 = ax1.twinx()
-    ax1_2.plot(tempo_real, df_alvo['TPS (%)'], label='TPS (%)', color='#2ca02c', alpha=0.7, linewidth=1.5)
-    ax1_2.set_ylim(*ESCALAS['TPS (%)'])
-    ax1_2.set_ylabel('TPS (%)', color='#2ca02c', fontweight='bold')
-    
-    estados_cores = {'Idle': 'cyan', 'Cruise': 'gray', 'WOT': 'red', 'Decel': 'blue', 'Warmup': 'magenta'}
-    for estado, cor in estados_cores.items():
-        onde = df_alvo['Estado_Motor'] == estado
-        if onde.any():
-            ax1.fill_between(tempo_real, ESCALAS['RPM'][0], ESCALAS['RPM'][1], 
-                             where=onde, color=cor, alpha=0.15, label=f'Estado: {estado}')
+        if df is not None and not df.empty:
+            versao_dash = df["Versão_HW"].iloc[-1]
 
-    linhas1, labels1 = ax1.get_legend_handles_labels()
-    linhas2, labels2 = ax1_2.get_legend_handles_labels()
-    ax1.legend(linhas1 + linhas2, labels1 + labels2, loc='upper left', fontsize='small', ncol=2)
+            aba1, aba2, aba3, aba4, aba5 = st.tabs([
+                "📊 Visão Geral", 
+                "📈 Telemetria (Gráficos)", 
+                "⚠️ Diagnóstico (Scanner)", 
+                "📋 Dados Brutos",
+                "📖 Glossário"
+            ])
 
-    for i, sensor in enumerate(sensores_para_grafico):
-        ax_sensor = axes[i + 1]
-        ax_sensor.set_title(f"Monitorização de Falha: {sensor}", fontsize=12, color='darkred', fontweight='bold')
-        
-        ax_sensor.plot(tempo_real, df_alvo[sensor], label=sensor, color='darkorange', linewidth=2)
-        ax_sensor.set_ylim(*ESCALAS.get(sensor, (df_alvo[sensor].min()-2, df_alvo[sensor].max()+2)))
-        ax_sensor.set_ylabel(sensor, color='darkorange', fontweight='bold')
-        ax_sensor.grid(True, alpha=0.3)
-        
-        df_alvo['Falha_Visual_Sensor'] = (df_alvo['Falha_Confirmada'] & (df_alvo['Culpado_Final'] == sensor)).rolling(window=FREQ_HZ, center=True, min_periods=1).max() > 0
-        if df_alvo['Falha_Visual_Sensor'].any():
-            ax_sensor.fill_between(tempo_real, ax_sensor.get_ylim()[0], ax_sensor.get_ylim()[1], 
-                                 where=df_alvo['Falha_Visual_Sensor'], color='red', alpha=0.3, label='Alvo Culpado')
-        ax_sensor.legend(loc='upper left')
+            # ABA 1: VISÃO GERAL
+            with aba1:
+                st.success(f"Log carregado com sucesso! (Dashboard v{versao_dash} | {len(df)} registos)")
+                try:
+                    memcal_id = int(df["Memcal ID"].iloc[-1])
+                    nome_modulo = MEMCAL_MAP.get(memcal_id, f"MODULO GM - ID MEMCAL: {memcal_id}")
+                except:
+                    nome_modulo = "Módulo Desconhecido"
+                    
+                st.info(f"**Módulo Identificado:** {nome_modulo}")
+                
+                st.subheader("Resumo do Percurso")
+                col1, col2, col3, col4 = st.columns(4)
+                col1.metric("RPM Máximo", f"{df['RPM'].max():.0f} RPM")
+                col2.metric("Temp Máxima Água", f"{df['CTS (°C)'].max():.0f} °C")
+                col3.metric("Distância Percorrida", f"{df['Distância_Total (km)'].iloc[-1]:.2f} km")
+                col4.metric("Velocidade Máxima", f"{df['VSS (km/h)'].max():.0f} km/h")
 
-    ax_ia = axes[-1]
-    ax_ia.plot(tempo_real, df_alvo['Severidade_Final'], label='Avaliação Cruzada (Sensores+Tensões+Flags)', color='black', linewidth=1.5)
-    ax_ia.plot(tempo_real, df_alvo['Limite_MAD_Estado'], color='red', linestyle='--', label=f'Threshold Dinâmico (MAD)', linewidth=2)
-    
-    falha_geral_visual = df_alvo['Falha_Confirmada'].rolling(window=FREQ_HZ, center=True, min_periods=1).max() > 0
-    if falha_geral_visual.any():
-        ax_ia.fill_between(tempo_real, df_alvo['Severidade_Final'], df_alvo['Limite_MAD_Estado'], 
-                         where=falha_geral_visual, color='red', alpha=0.6, label='Falha Sistêmica Confirmada')
+                st.markdown("---")
+                st.subheader("Médias de Funcionamento")
+                col_a, col_b, col_c, col_d = st.columns(4)
+                col_a.metric("Tensão Média Bateria", f"{df['Bateria (V)'].mean():.2f} V")
+                col_b.metric("Avanço Médio", f"{df['Avanço (°)'].mean():.1f} °")
+                col_c.metric("TPS Médio", f"{df['TPS (%)'].mean():.1f} %")
+                col_d.metric("MAP Médio", f"{df['MAP (kPa)'].mean():.1f} kPa")
 
-    ax_ia.xaxis.set_major_formatter(ticker.FuncFormatter(formata_tempo_log))
-    ax_ia.set_xlabel('Tempo Real de Funcionamento (MM:SS)', fontsize=12, fontweight='bold')
-    ax_ia.set_ylabel('Gravidade (Erro MSE)', fontweight='bold')
-    ax_ia.legend(loc='upper left')
-    ax_ia.grid(True, alpha=0.3)
+            # ABA 2: GRÁFICOS (Mantém o Plotly na Telemetria Padrão)
+            with aba2:
+                colunas_analogicas = list(LIMITES_SENSORES.keys())
+                colunas_flags = [c for c in df.columns if c.startswith("Flag_")]
+                
+                col_sel1, col_sel2 = st.columns(2)
+                with col_sel1:
+                    selecionados_analog = st.multiselect("Sensores Analógicos:", options=colunas_analogicas, default=["RPM", "MAP (kPa)", "Bateria (V)", "TPS (%)", "VSS (km/h)", "CTS (°C)"])
+                with col_sel2:
+                    selecionados_flags = st.multiselect("Sinais Digitais / Flags (ON/OFF):", options=colunas_flags, default=["Flag_Fan1", "Flag_Fan2", "Flag_ShiftLight"])
 
-    plt.tight_layout()
-    plt.savefig("relatorio_neuro_simbolico.png", dpi=150)
-    plt.close()
-    
-    print("✅ Relatório gerado! Arquivo 'relatorio_neuro_simbolico.png' guardado na pasta.")
-    
-    # A ÚNICA LINHA MUDADA PARA LIGAR À FASE 4 (O Retorno dos dados)
-    return df_alvo 
+                if selecionados_analog or selecionados_flags:
+                    fig = go.Figure()
+                    cores = px.colors.qualitative.Plotly
+                    layout_updates = {}
+                    
+                    tem_analog = len(selecionados_analog) > 0
+                    tem_flags = len(selecionados_flags) > 0
+                    
+                    if tem_analog:
+                        for idx, sensor in enumerate(selecionados_analog):
+                            axis_name = f"y{idx + 1}"
+                            fig.add_trace(go.Scatter(x=df['Tempo_Relogio'], y=df[sensor], name=sensor, mode='lines', line=dict(color=cores[idx % len(cores)]), yaxis=axis_name))
+                            vmin, vmax = LIMITES_SENSORES.get(sensor, (df[sensor].min(), df[sensor].max()))
+                            axis_key = f"yaxis{idx + 1}" if idx > 0 else "yaxis"
+                            layout_updates[axis_key] = dict(range=[vmin, vmax], overlaying="y" if idx > 0 else None, visible=False, fixedrange=True)
 
-if __name__ == "__main__":
-    executar_scanner_especialista()
+                    if tem_flags:
+                        flag_axis_idx = len(selecionados_analog) + 1 if tem_analog else 1
+                        axis_name_flag = f"y{flag_axis_idx}"
+                        axis_key_flag = f"yaxis{flag_axis_idx}"
+                        
+                        for f_idx, flag in enumerate(selecionados_flags):
+                            cor_idx = (len(selecionados_analog) + f_idx) % len(cores)
+                            valores_numericos = pd.to_numeric(df[flag], errors='coerce').fillna(0)
+                            if flag in ["Flag_CAC", "Flag_ISV", "Flag_ACC"]: valores_numericos = 1 - valores_numericos
+                            y_plot = valores_numericos * 0.5
+                            fig.add_trace(go.Scatter(x=df['Tempo_Relogio'], y=y_plot, name=flag, mode='lines', line_shape='hv', line=dict(color=cores[cor_idx], width=2), customdata=valores_numericos.astype(int), hovertemplate=f"<b>{flag}</b>: %{{customdata}}<extra></extra>", yaxis=axis_name_flag))
+                        layout_updates[axis_key_flag] = dict(range=[0.0, 1.0], overlaying="y" if tem_analog else None, visible=False, fixedrange=True)
+
+                    fig.update_layout(**layout_updates, height=600, hovermode="x unified", template="plotly_dark", margin=dict(l=20, r=20, t=50, b=20), title="Gráficos do arquivo LOG")
+                    tempo_inicial = df['Tempo_Relogio'].min()
+                    range_inicial = [tempo_inicial, min(tempo_inicial + pd.Timedelta(minutes=1), df['Tempo_Relogio'].max())]
+                    fig.update_xaxes(title_text="Tempo (hh:mm:ss)", tickformat="%H:%M:%S", hoverformat="%H:%M:%S.%L", range=range_inicial, rangeslider=dict(visible=True, thickness=0.05))
+                    st.plotly_chart(fig, width="stretch")
+
+            # ABA 3: DIAGNÓSTICO E INTELIGÊNCIA ARTIFICIAL
+            with aba3:
+                st.subheader("Módulo de Diagnóstico e Análise de Falhas")
+                
+                st.markdown("### Erros Registados na ECU (Clássico)")
+                colunas_erros = [c for c in df.columns if c.startswith("Err_")]
+                erros_ocorridos = df[colunas_erros].sum()
+                erros_ativos = erros_ocorridos[erros_ocorridos > 0]
+                
+                if not erros_ativos.empty:
+                    st.error("Atenção! A Centralina (ECU) reportou os seguintes códigos de falha clássicos:")
+                    st.dataframe(erros_ativos.rename("Ciclos com Falha"), width="stretch")
+                else:
+                    st.success("Nenhum código de falha clássico registado na memória da ECU.")
+
+                st.markdown("---")
+                
+                if ENABLE_AI_DIAGNOSIS:
+                    st.markdown("### 🤖 Diagnóstico Avançado IA (Neuro-Simbólico)")
+                    st.markdown("*(Fase 1: Mestre Mecânico & Estatística Robusta | Fase 2: Motor DTW)*")
+                    
+                    if not IA_DISPONIVEL:
+                        st.warning(f"O módulo de IA não está disponível neste servidor. Erro interno: {ERRO_CARREGAMENTO_IA}")
+                        st.info("Verifique se o pacote 'matplotlib' está no seu ficheiro requirements.txt na Railway!")
+                    else:
+                        if st.button("🔍 Executar Análise Profunda com IA", type="primary"):
+                            with st.spinner("A inicializar os modelos matemáticos e a avaliar o Log..."):
+                                try:
+                                    scaler, modelo, pipeline, mestre, biblioteca = carregar_cerebro_ia()
+                                    
+                                    if modelo is None:
+                                        st.error("Falha ao carregar o Cérebro Neural. Operação cancelada.")
+                                    else:
+                                        if isinstance(st.session_state.log_selecionado, str) and st.session_state.log_selecionado.startswith("http"):
+                                            resposta = requests.get(st.session_state.log_selecionado)
+                                            texto_cru = resposta.text
+                                        else:
+                                            texto_cru = st.session_state.log_selecionado
+                                            
+                                        linhas_validas = [l for l in texto_cru.split('\n') if len(l.split('|')) == len(COLUNAS_SCANNER)]
+                                        df_cru_ia = pd.read_csv(io.StringIO('\n'.join(linhas_validas)), sep="|", header=None, names=COLUNAS_SCANNER)
+                                        
+                                        df_alvo = pipeline.processar_log(df_cru_ia)
+                                        
+                                        df_alvo['CO2_Diff'] = df_alvo['CO2 (V)'].diff().fillna(0)
+                                        df_alvo['TPS_Diff_Abs'] = df_alvo['TPS (%)'].diff().fillna(0).abs()
+                                        df_alvo['RPM_Diff_Abs'] = df_alvo['RPM'].diff().fillna(0).abs()
+                                        df_alvo['Bateria_Diff_Abs'] = df_alvo['Bateria (V)'].diff().fillna(0).abs()
+                                        df_alvo['MAP_V_Diff_Abs'] = df_alvo['MAP (V)'].diff().fillna(0).abs()
+                                        df_alvo['MAP_kPa_Diff_Abs'] = df_alvo['MAP (kPa)'].diff().fillna(0).abs()
+                                        df_alvo['CTS_V_Diff_Abs'] = df_alvo['CTS (V)'].diff().fillna(0).abs()
+                                        df_alvo['CTS_C_Diff_Abs'] = df_alvo['CTS (°C)'].diff().fillna(0).abs()
+                                        df_alvo['TPS_V_Diff_Abs'] = df_alvo['TPS (V)'].diff().fillna(0).abs()
+                                        
+                                        limites_por_estado = {'Idle': 3.5, 'Cruise': 4.0, 'Decel': 4.5, 'WOT': 5.0, 'Warmup': 6.0}
+                                        limite_global_mad = 4.0
+
+                                        dados_normalizados = scaler.transform(df_alvo[COLUNAS_IA])
+                                        dados_reconstruidos = modelo.predict(dados_normalizados, verbose=0)
+                                        
+                                        erros_individuais_brutos = np.power(dados_normalizados - dados_reconstruidos, 2)
+                                        df_erros_individuais = pd.DataFrame(erros_individuais_brutos, columns=COLUNAS_IA, index=df_alvo.index)
+                                        
+                                        df_alvo['Erro_IA_Pura'] = np.mean(erros_individuais_brutos, axis=1)
+                                        df_alvo['Limite_MAD_Estado'] = df_alvo['Estado_Motor'].map(limites_por_estado).fillna(limite_global_mad)
+
+                                        diagnosticos, sensores_culpados_brutos, grau_severidade = [], [], []
+                                        for index, linha in df_alvo.iterrows():
+                                            erro_ia = linha['Erro_IA_Pura']
+                                            limite_ia = linha['Limite_MAD_Estado']
+                                            diag, sensor = mestre.auditar_diagnostico_ia(linha)
+                                            
+                                            if diag != "Normal":
+                                                diagnosticos.append(diag)
+                                                sensores_culpados_brutos.append(sensor)
+                                                grau_severidade.append(limite_ia * 3) 
+                                            elif erro_ia > limite_ia:
+                                                diagnosticos.append("Anomalia Sistémica/Estatística (IA)")
+                                                sensores_culpados_brutos.append("IA_Genérica") 
+                                                grau_severidade.append(erro_ia)
+                                            else:
+                                                diagnosticos.append("Normal")
+                                                sensores_culpados_brutos.append("Nenhum")
+                                                grau_severidade.append(0)
+
+                                        df_alvo['Severidade_Final'] = grau_severidade
+                                        df_alvo['Diagnostico_Texto'] = diagnosticos
+                                        df_alvo['Culpado_Bruto'] = sensores_culpados_brutos
+                                        df_alvo['Culpado_Final'] = df_alvo['Culpado_Bruto']
+                                        
+                                        mask_ia = df_alvo['Culpado_Bruto'] == 'IA_Genérica'
+                                        if mask_ia.any():
+                                            max_sensors = df_erros_individuais.loc[mask_ia, SENSORES_CAUSA_RAIZ].idxmax(axis=1)
+                                            max_erros = df_erros_individuais.loc[mask_ia, SENSORES_CAUSA_RAIZ].max(axis=1)
+                                            valid_ia_mask = mask_ia & (max_erros > 6.0)
+                                            
+                                            carga_real = (df_alvo['TPS (%)'] >= 2.0) | (df_alvo['VSS (km/h)'] >= 2)
+                                            falso_tps = valid_ia_mask & (max_sensors == 'TPS (%)') & (df_alvo['TPS_Diff_Abs'] < 30.0)
+                                            falso_tps_v = valid_ia_mask & (max_sensors == 'TPS (V)') & (df_alvo['TPS_V_Diff_Abs'] < 1.5)
+                                            falso_rpm = valid_ia_mask & (max_sensors == 'RPM') & (df_alvo['RPM_Diff_Abs'] < 300)
+                                            falso_bat = valid_ia_mask & (max_sensors == 'Bateria (V)') & (df_alvo['Bateria_Diff_Abs'] < 0.5)
+                                            falso_map_v = valid_ia_mask & (max_sensors == 'MAP (V)') & (df_alvo['MAP_V_Diff_Abs'] < 1.5) & carga_real
+                                            falso_map_kpa = valid_ia_mask & (max_sensors == 'MAP (kPa)') & (df_alvo['MAP_kPa_Diff_Abs'] < 30.0) & carga_real
+                                            falso_cts_v = valid_ia_mask & (max_sensors == 'CTS (V)') & (df_alvo['CTS_V_Diff_Abs'] < 0.2)
+                                            falso_cts_c = valid_ia_mask & (max_sensors == 'CTS (°C)') & (df_alvo['CTS_C_Diff_Abs'] < 2.0)
+                                            
+                                            invalidos = falso_tps | falso_rpm | falso_bat | falso_map_v | falso_map_kpa | falso_cts_v | falso_cts_c | falso_tps_v
+                                            valid_ia_mask = valid_ia_mask & ~invalidos
+                                            invalid_ia_mask = mask_ia & ~valid_ia_mask
+                                            
+                                            df_alvo.loc[valid_ia_mask, 'Culpado_Final'] = max_sensors[valid_ia_mask]
+                                            df_alvo.loc[invalid_ia_mask, 'Culpado_Final'] = "Nenhum"
+                                            df_alvo.loc[invalid_ia_mask, 'Culpado_Bruto'] = "Nenhum"
+                                            df_alvo.loc[invalid_ia_mask, 'Diagnostico_Texto'] = "Normal"
+                                            df_alvo.loc[invalid_ia_mask, 'Severidade_Final'] = 0
+
+                                        FREQ_HZ = 6
+                                        frames_persistencia = max(2, int(FREQ_HZ * 0.4)) 
+                                        anomalia_instantanea = df_alvo['Severidade_Final'] > df_alvo['Limite_MAD_Estado']
+                                        df_alvo['Falha_Confirmada'] = anomalia_instantanea.rolling(window=frames_persistencia, min_periods=1).min() > 0
+
+                                        margem = FREQ_HZ * 2 
+                                        n_start, n_end = min(margem, len(df_alvo)), min(margem, len(df_alvo))
+                                        df_alvo.iloc[:n_start, df_alvo.columns.get_loc('Falha_Confirmada')] = False
+                                        df_alvo.iloc[-n_end:, df_alvo.columns.get_loc('Falha_Confirmada')] = False
+
+                                        falhas_confirmadas = df_alvo[df_alvo['Falha_Confirmada']]
+                                        picos_falha = len(falhas_confirmadas)
+                                        
+                                        texto_laudo_llm = ""
+                                        assinatura_dtw = ""
+                                        
+                                        falhas_fisicas = pd.DataFrame()
+                                        falhas_ia = pd.DataFrame()
+
+                                        if picos_falha > 0:
+                                            st.error(f"🚨 A IA detetou anomalias reais! ({picos_falha} frames confirmados, ~{picos_falha/FREQ_HZ:.1f} segundos)")
+                                            
+                                            falhas_fisicas = falhas_confirmadas[falhas_confirmadas['Culpado_Bruto'] != "IA_Genérica"]
+                                            falhas_ia = falhas_confirmadas[falhas_confirmadas['Culpado_Bruto'] == "IA_Genérica"]
+                                            
+                                            if len(falhas_fisicas) > 0:
+                                                principal = falhas_fisicas['Diagnostico_Texto'].value_counts().index[0]
+                                                culpados = falhas_fisicas['Culpado_Final'].unique().tolist()
+                                                st.warning(f"**🛠️ Diagnóstico Físico (Mestre Mecânico):** {principal}")
+                                                st.warning(f"**Sensores Culpados:** {culpados}")
+                                                texto_laudo_llm = principal
+                                                
+                                                df_recorte = df_alvo[df_alvo['Falha_Confirmada']].copy()
+                                                diag_dtw, distancia = biblioteca.classificar_anomalia(df_recorte, culpados)
+                                                assinatura_dtw = diag_dtw
+                                                st.info(f"**🎯 Análise de Curva (DTW):** {diag_dtw}")
+                                            elif len(falhas_ia) > 0:
+                                                principal = falhas_ia['Culpado_Final'].value_counts().index[0]
+                                                st.warning(f"**🧠 Causa Raiz Estatística (IA):** Anomalia centrada em {principal}")
+                                                texto_laudo_llm = f"Desvio matemático grave focado no sensor {principal}"
+                                                assinatura_dtw = "Anomalia Não Mapeada"
+                                        else:
+                                            st.success("✅ A IA aprovou este log. Nenhuma anomalia grave ou desvio estatístico confirmado no motor.")
+                                            texto_laudo_llm = "Nenhum problema encontrado. O motor está a funcionar perfeitamente dentro das tolerâncias físicas e estatísticas."
+                                            assinatura_dtw = "Nenhuma"
+
+                                        # =========================================================
+                                        # GRÁFICOS RECONSTRUÍDOS (100% MATPLOTLIB - SISTEMA ORIGINAL LOCAL)
+                                        # =========================================================
+                                        st.markdown("---")
+                                        st.markdown("#### 📊 Relatório Visual do Diagnóstico")
+                                        
+                                        ESCALAS = {
+                                            'RPM': (0, 6400), 'TPS (%)': (0, 100), 'TPS (V)': (0, 5), 'CTS (°C)': (0, 110), 'CTS (V)': (0, 5),
+                                            'MAP (kPa)': (10, 105), 'MAP (V)': (0, 5), 'Bateria (V)': (8, 16), 'IAC (Passos)': (0, 160),
+                                            'CO2 (V)': (0, 5)
+                                        }
+
+                                        sensores_para_grafico = []
+                                        if picos_falha > 0:
+                                            if len(falhas_fisicas) > 0:
+                                                sensores_para_grafico.extend(falhas_fisicas['Culpado_Final'].unique().tolist())
+                                            if len(falhas_ia) > 0:
+                                                sensores_para_grafico.extend(falhas_ia['Culpado_Final'].unique().tolist())
+                                                
+                                        # Limita a 4 sensores para manter a proporção
+                                        sensores_para_grafico = list(dict.fromkeys(sensores_para_grafico))[:4]
+                                        
+                                        num_paineis = 2 + len(sensores_para_grafico)
+                                        fig, axes = plt.subplots(num_paineis, 1, figsize=(15, 3.5 * num_paineis), sharex=True)
+                                        if not isinstance(axes, (list, np.ndarray)): axes = [axes]
+                                        
+                                        # O SEGREDO DO SUCESSO: Usa os segundos originais capturados do ALDL
+                                        tempo_real = df_alvo['RTM (s)'].to_numpy()
+                                        
+                                        # --- PAINEL 1: RPM e TPS ---
+                                        ax1 = axes[0]
+                                        ax1.plot(tempo_real, df_alvo['RPM'], label='RPM', color='#1f77b4')
+                                        ax1.set_ylim(*ESCALAS['RPM'])
+                                        ax1.set_ylabel('RPM', color='#1f77b4', fontweight='bold')
+                                        ax1.set_title("RPM vs TPS (%) - Estados do Motor", fontsize=14, fontweight='bold', color='gray')
+                                        ax1.grid(True, alpha=0.3)
+                                        
+                                        ax1_2 = ax1.twinx()
+                                        ax1_2.plot(tempo_real, df_alvo['TPS (%)'], label='TPS (%)', color='#2ca02c', alpha=0.7, linewidth=1.5)
+                                        ax1_2.set_ylim(*ESCALAS['TPS (%)'])
+                                        ax1_2.set_ylabel('TPS (%)', color='#2ca02c', fontweight='bold')
+                                        
+                                        estados_cores = {'Idle': 'cyan', 'Cruise': 'gray', 'WOT': 'red', 'Decel': 'blue', 'Warmup': 'magenta'}
+                                        for estado, cor in estados_cores.items():
+                                            onde = df_alvo['Estado_Motor'] == estado
+                                            if onde.any():
+                                                ax1.fill_between(tempo_real, ESCALAS['RPM'][0], ESCALAS['RPM'][1], 
+                                                                 where=onde, color=cor, alpha=0.15, label=f'Estado: {estado}')
+                                                                 
+                                        linhas1, labels1 = ax1.get_legend_handles_labels()
+                                        linhas2, labels2 = ax1_2.get_legend_handles_labels()
+                                        ax1.legend(linhas1 + linhas2, labels1 + labels2, loc='upper left', fontsize='small', ncol=2)
+                                        
+                                        # --- PAINÉIS DO MEIO: Sensores Culpados ---
+                                        for i, sensor in enumerate(sensores_para_grafico):
+                                            ax_sensor = axes[i + 1]
+                                            ax_sensor.set_title(f"Monitorização de Falha: {sensor}", fontsize=12, color='darkred', fontweight='bold')
+                                            
+                                            ax_sensor.plot(tempo_real, df_alvo[sensor], label=sensor, color='darkorange', linewidth=2)
+                                            ax_sensor.set_ylim(*ESCALAS.get(sensor, (df_alvo[sensor].min()-2, df_alvo[sensor].max()+2)))
+                                            ax_sensor.set_ylabel(sensor, color='darkorange', fontweight='bold')
+                                            ax_sensor.grid(True, alpha=0.3)
+                                            
+                                            df_alvo['Falha_Visual_Sensor'] = (df_alvo['Falha_Confirmada'] & (df_alvo['Culpado_Final'] == sensor)).rolling(window=FREQ_HZ, center=True, min_periods=1).max() > 0
+                                            if df_alvo['Falha_Visual_Sensor'].any():
+                                                ax_sensor.fill_between(tempo_real, ax_sensor.get_ylim()[0], ax_sensor.get_ylim()[1], 
+                                                                     where=df_alvo['Falha_Visual_Sensor'], color='red', alpha=0.3, label='Alvo Culpado')
+                                            ax_sensor.legend(loc='upper left')
+                                            
+                                        # --- PAINEL FINAL: IA Global ---
+                                        ax_ia = axes[-1]
+                                        ax_ia.set_title("Avaliação Global (Cérebro da IA)", fontsize=12, color='black', fontweight='bold')
+                                        ax_ia.plot(tempo_real, df_alvo['Severidade_Final'], label='Avaliação Cruzada (Sensores+Tensões+Flags)', color='black', linewidth=1.5)
+                                        ax_ia.plot(tempo_real, df_alvo['Limite_MAD_Estado'], color='red', linestyle='--', label='Threshold Dinâmico (MAD)', linewidth=2)
+                                        
+                                        falha_geral_visual = df_alvo['Falha_Confirmada'].rolling(window=FREQ_HZ, center=True, min_periods=1).max() > 0
+                                        if falha_geral_visual.any():
+                                            ax_ia.fill_between(tempo_real, df_alvo['Severidade_Final'], df_alvo['Limite_MAD_Estado'], 
+                                                             where=falha_geral_visual, color='red', alpha=0.6, label='Falha Sistêmica Confirmada')
+                                                             
+                                        def formata_tempo_log(x, pos):
+                                            if np.isnan(x) or x < 0: return ""
+                                            minutos = int(x // 60)
+                                            segundos = int(x % 60)
+                                            return f"{minutos:02d}:{segundos:02d}"
+                                            
+                                        ax_ia.xaxis.set_major_formatter(ticker.FuncFormatter(formata_tempo_log))
+                                        ax_ia.set_xlabel('Tempo Real de Funcionamento (MM:SS)', fontsize=12, fontweight='bold')
+                                        ax_ia.set_ylabel('Gravidade', fontweight='bold')
+                                        ax_ia.legend(loc='upper left')
+                                        ax_ia.grid(True, alpha=0.3)
+                                        
+                                        plt.tight_layout()
+                                        st.pyplot(fig)
+                                        plt.close(fig) # Importante para poupar RAM no servidor web
+
+                                        # --- RESPOSTA HUMANIZADA (LLM) ---
+                                        if ENABLE_LLM_EXPLANATION and picos_falha > 0:
+                                            st.markdown("---")
+                                            st.markdown("### 🗣️ Explicação do Engenheiro Mestre (IA)")
+                                            with st.spinner("A gerar explicação detalhada..."):
+                                                
+                                                chave_api = os.environ.get("GEMINI_API_KEY")
+                                                if not chave_api:
+                                                    try:
+                                                        chave_api = st.secrets.get("GEMINI_API_KEY")
+                                                    except Exception:
+                                                        chave_api = None
+                                                        
+                                                if chave_api:
+                                                    try:
+                                                        genai.configure(api_key=chave_api)
+                                                        llm_model = genai.GenerativeModel('gemini-1.5-flash')
+                                                        
+                                                        prompt = f"""
+                                                        Atue como um mecânico chefe e engenheiro muito experiente da Chevrolet, especialista em injeção eletrónica Multec 700 (Monza, Kadett, Ipanema).
+                                                        O nosso scanner de diagnóstico automático acabou de encontrar um defeito no log do carro do cliente.
+                                                        
+                                                        O laudo bruto da engenharia foi:
+                                                        Sintoma Físico Identificado: {texto_laudo_llm}
+                                                        Assinatura da Curva (DTW): {assinatura_dtw}
+                                                        
+                                                        Com base nisto, escreva uma explicação direta, amigável e fácil de entender para o dono do carro.
+                                                        Sem vocabulário excessivamente complicado, mas mostrando autoridade técnica. 
+                                                        Explique o que o cliente provavelmente está a sentir a conduzir o carro (os sintomas visíveis).
+                                                        Termine com 3 recomendações claras (bullet points) do que ele deve pedir ao seu mecânico para verificar primeiro na oficina.
+                                                        Seja direto ao ponto, use negritos para realçar as peças e sintomas.
+                                                        """
+                                                        resposta_llm = llm_model.generate_content(prompt)
+                                                        st.info(resposta_llm.text)
+                                                    except Exception:
+                                                        st.warning("⚠️ O LLM de explicação falhou ao comunicar com o servidor da Google.")
+                                                else:
+                                                    st.warning("⚠️ A chave API do Gemini ainda não foi configurada. Funcionalidade de IA descritiva desativada.")
+
+                                except Exception as err:
+                                    st.error(f"❌ Ocorreu um erro inesperado durante a análise de IA: {err}")
+
+            with aba4:
+                st.subheader("Tabela de Dados Brutos")
+                st.dataframe(df.drop(columns=["Tempo_Relogio", "RTM_Continuo"]), width="stretch", height=500)
+
+            with aba5:
+                st.subheader("📖 Glossário de Parâmetros Multec 700")
+                st.markdown("Consulta rápida do significado de cada abreviação e flag gerada pela ECU.")
+                
+                col_g1, col_g2 = st.columns(2)
+                
+                with col_g1:
+                    st.markdown("#### 🌡️ Sensores Analógicos e Medidas")
+                    st.markdown("""
+                    * **RTM (s):** *Run Time Motor* - Tempo de funcionamento do motor.
+                    * **RPM:** *Revolutions Per Minute* - Rotação atual do motor.
+                    * **CTS (°C / V):** *Coolant Temperature Sensor* - Temperatura da água.
+                    * **VSS (km/h):** *Vehicle Speed Sensor* - Velocidade atual do veículo.
+                    * **TPS (% / V):** *Throttle Position Sensor* - Posição da borboleta.
+                    * **MAP (kPa / V):** *Manifold Absolute Pressure* - Pressão absoluta do coletor.
+                    * **Pressão Atm (kPa / V):** Pressão atmosférica lida antes da partida.
+                    * **Bateria (V):** Tensão da bateria lida pela ECU.
+                    * **CO2 (V):** Tensão do potenciómetro de ajuste de mistura de CO.
+                    """)
+
+                    st.markdown("#### ⚙️ Parâmetros Calculados / Atuadores")
+                    st.markdown("""
+                    * **Avanço (°):** Ponto de ignição calculado pela ECU.
+                    * **BPW (ms):** *Base Pulse Width* - Tempo de injeção em milissegundos.
+                    * **AFR Partida / Atual:** *Air Fuel Ratio* - Relação Ar/Combustível comandada.
+                    * **IAC (Passos):** *Idle Air Control* - Posição do motor de passo.
+                    * **Marcha Lenta Ideal:** Rotação alvo a manter.
+                    * **TBRP:** *Time Between Reference Pulses* - Tempo entre os pulsos da ignição.
+                    * **Memcal ID:** Identificação gravada na EPROM da ECU.
+                    """)
+
+                with col_g2:
+                    st.markdown("#### 🚩 Flags (Sinais Digitais e Status)")
+                    st.markdown("""
+                    * **Flag_RAQ:** Aquecimento do Coletor ativado.
+                    * **Flag_ACC:** Embraiagem do Ar Condicionado acoplada.
+                    * **Flag_BCE:** Controle de desvio (avanço) ativado.
+                    * **Flag_CAC:** Ciclagem do Ar Condicionado.
+                    * **Flag_Fan1 / Fan2:** Eletroventilador (Ventoinha) ligado.
+                    * **Flag_RPF:** Relé de Partida a Frio acionado.
+                    * **Flag_ShiftLight:** Luz indicadora de mudança ativada.
+                    * **Flag_ISV:** Interruptor de Solicitação da Ventoinha.
+                    * **Flag_Falha_Ativa:** Indica se há algum código de falha ativo.
+                    * **Flag_TPS_IDLE:** Borboleta totalmente fechada.
+                    * **Flag_Clear_Flood:** Modo de desafogamento do motor (Pedal 100%).
+                    * **Flag_Park_Drive:** Status do seletor de marchas automático.
+                    * **Flag_CutOff:** Corte de injeção ativado.
+                    * **Flag_Motor_ON:** Confirmação do motor em funcionamento.
+                    * **Flag_Em_Movimento:** Confirmação de que velocidade > 0.
+                    """)
+                    
+                    st.markdown("#### ⚠️ Códigos de Erro (DTCs)")
+                    st.markdown("""
+                    * **Erro 14/15:** Falha no Sensor de Temperatura (CTS) - Alta/Baixa.
+                    * **Erro 21/22:** Falha no Sensor da Borboleta (TPS) - Alta/Baixa.
+                    * **Erro 24:** Falha no Sensor de Velocidade (VSS).
+                    * **Erro 33/34:** Falha no Sensor de Pressão (MAP) - Alta/Baixa.
+                    * **Erro 35:** Falha no controle de Marcha Lenta (IAC).
+                    * **Erro 42:** Falha no circuito do Módulo de Ignição (HEI).
+                    * **Erro 51:** Falha/Defeito no Memcal (EPROM).
+                    * **Erro 54:** Falha no circuito de ajuste de CO2.
+                    """)
+
+    else:
+        st.info("👈 Utilize o menu lateral esquerdo para carregar um Arquivo de log local ou explore a opção \"LOG's da Comunidade\". Acesse através do Computador para uma melhor visualização.")
