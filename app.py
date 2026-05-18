@@ -526,7 +526,9 @@ elif st.session_state.view == 'dashboard':
                                                 sensores_para_grafico.extend(falhas_fisicas['Culpado_Final'].unique().tolist())
                                             if len(falhas_ia) > 0:
                                                 sensores_para_grafico.extend(falhas_ia['Culpado_Final'].unique().tolist())
-                                                
+                                        
+                                        # Remove sensores inválidos (que não existem como coluna no df_alvo)
+                                        sensores_para_grafico = [s for s in sensores_para_grafico if s in df_alvo.columns and s not in ("Nenhum", "IA_Genérica")]
                                         # Limita a 4 sensores para manter a proporção da tela
                                         sensores_para_grafico = list(dict.fromkeys(sensores_para_grafico))[:4]
                                         
@@ -542,87 +544,197 @@ elif st.session_state.view == 'dashboard':
 
                                         fig_ia = make_subplots(rows=num_paineis, cols=1, shared_xaxes=True, vertical_spacing=0.06, specs=specs, subplot_titles=titulos_paineis)
                                         
-                                        # O Tempo como Índice Datetime Nativo do Pipeline garante precisão de formatação
-                                        tempo_plot = df_alvo.index 
-                                        
-                                        # --- PAINEL 1: RPM e TPS ---
-                                        estados_cores = {'Idle': 'cyan', 'Cruise': 'gray', 'WOT': 'red', 'Decel': 'blue', 'Warmup': 'magenta'}
-                                        
-                                        for estado, cor in estados_cores.items():
-                                            mask_est = df_alvo['Estado_Motor'] == estado
-                                            if mask_est.any():
-                                                # Encontra blocos isolados com precisão
-                                                starts = tempo_plot[mask_est & ~mask_est.shift(1, fill_value=False)]
-                                                ends = tempo_plot[mask_est & ~mask_est.shift(-1, fill_value=False)]
-                                                
-                                                for s, e in zip(starts, ends):
-                                                    # Desenha retângulos de fundo exatos
-                                                    fig_ia.add_vrect(x0=s, x1=e, fillcolor=cor, opacity=0.15, layer="below", line_width=0, row=1, col=1)
-                                                
-                                                # Traço oculto para a legenda
-                                                fig_ia.add_trace(go.Scatter(x=[None], y=[None], mode='markers', marker=dict(color=cor, size=10, symbol='square'), name=f'Estado: {estado}'), row=1, col=1)
+                                        # --- CONSTRUÇÃO DO EIXO TEMPORAL CORRETO ---
+                                        # O índice do df_alvo pode ser datetime, numérico (RTM em segundos) ou outro.
+                                        # Normalizamos para sempre ter uma Series datetime com nome "Tempo_Plot"
+                                        idx = df_alvo.index
+                                        if pd.api.types.is_datetime64_any_dtype(idx):
+                                            # Índice já é datetime — usa diretamente
+                                            tempo_plot = pd.Series(idx, index=df_alvo.index)
+                                        elif pd.api.types.is_numeric_dtype(idx):
+                                            # Índice é numérico (RTM em segundos) — converte para datetime fictício
+                                            tempo_plot = pd.to_datetime(idx, unit='s')
+                                            tempo_plot = pd.Series(tempo_plot.values, index=df_alvo.index)
+                                        elif 'Tempo_Relogio' in df_alvo.columns:
+                                            tempo_plot = df_alvo['Tempo_Relogio']
+                                        elif 'RTM_Continuo' in df_alvo.columns:
+                                            tempo_plot = pd.to_datetime(df_alvo['RTM_Continuo'], unit='s')
+                                        elif 'RTM (s)' in df_alvo.columns:
+                                            tempo_plot = pd.to_datetime(df_alvo['RTM (s)'], unit='s')
+                                        else:
+                                            tempo_plot = pd.Series(range(len(df_alvo)), index=df_alvo.index)
 
-                                        fig_ia.add_trace(go.Scatter(x=tempo_plot, y=df_alvo['RPM'], name='RPM', line=dict(color='#1f77b4', width=2), hovertemplate='RPM: %{y}<br>Tempo: %{x|%M:%S.%L}<extra></extra>'), row=1, col=1, secondary_y=False)
-                                        fig_ia.add_trace(go.Scatter(x=tempo_plot, y=df_alvo['TPS (%)'], name='TPS (%)', line=dict(color='#2ca02c', width=2), opacity=0.7, hovertemplate='TPS: %{y}%<br>Tempo: %{x|%M:%S.%L}<extra></extra>'), row=1, col=1, secondary_y=True)
+                                        is_datetime_axis = pd.api.types.is_datetime64_any_dtype(tempo_plot)
                                         
-                                        fig_ia.update_yaxes(title_text="RPM", title_font=dict(color='#1f77b4', size=12, family="Arial Black"), row=1, col=1, secondary_y=False)
+                                        # --- PAINEL 1: RPM e TPS com Estados do Motor ---
+                                        estados_cores = {
+                                            'Idle':   ('cyan',    'Estado: Idle'),
+                                            'Cruise': ('gray',    'Estado: Cruise'),
+                                            'WOT':    ('red',     'Estado: WOT'),
+                                            'Decel':  ('blue',    'Estado: Decel'),
+                                            'Warmup': ('magenta', 'Estado: Warmup'),
+                                        }
+                                        
+                                        legend_estados_adicionados = set()
+                                        for estado, (cor, legenda_nome) in estados_cores.items():
+                                            mask_est = df_alvo['Estado_Motor'] == estado
+                                            if not mask_est.any():
+                                                continue
+                                            
+                                            # Detecta início/fim de cada bloco contíguo
+                                            mask_arr = mask_est.values
+                                            tp_arr   = tempo_plot.values
+                                            blocos_start, blocos_end = [], []
+                                            em_bloco = False
+                                            for k in range(len(mask_arr)):
+                                                if mask_arr[k] and not em_bloco:
+                                                    blocos_start.append(tp_arr[k])
+                                                    em_bloco = True
+                                                elif not mask_arr[k] and em_bloco:
+                                                    blocos_end.append(tp_arr[k - 1])
+                                                    em_bloco = False
+                                            if em_bloco:
+                                                blocos_end.append(tp_arr[-1])
+                                            
+                                            for s_t, e_t in zip(blocos_start, blocos_end):
+                                                fig_ia.add_vrect(
+                                                    x0=s_t, x1=e_t,
+                                                    fillcolor=cor, opacity=0.15,
+                                                    layer="below", line_width=0,
+                                                    row=1, col=1
+                                                )
+                                            
+                                            # Traço invisível apenas para a legenda (um por estado)
+                                            if estado not in legend_estados_adicionados:
+                                                fig_ia.add_trace(go.Scatter(
+                                                    x=[None], y=[None], mode='markers',
+                                                    marker=dict(color=cor, size=10, symbol='square'),
+                                                    name=legenda_nome,
+                                                    showlegend=True
+                                                ), row=1, col=1)
+                                                legend_estados_adicionados.add(estado)
+
+                                        fig_ia.add_trace(go.Scatter(
+                                            x=tempo_plot, y=df_alvo['RPM'],
+                                            name='RPM', line=dict(color='#1f77b4', width=2),
+                                            hovertemplate='RPM: %{y}<br>Tempo: %{x|%M:%S.%L}<extra></extra>'
+                                        ), row=1, col=1, secondary_y=False)
+
+                                        fig_ia.add_trace(go.Scatter(
+                                            x=tempo_plot, y=df_alvo['TPS (%)'],
+                                            name='TPS (%)', line=dict(color='#2ca02c', width=2), opacity=0.7,
+                                            hovertemplate='TPS: %{y}%<br>Tempo: %{x|%M:%S.%L}<extra></extra>'
+                                        ), row=1, col=1, secondary_y=True)
+                                        
+                                        fig_ia.update_yaxes(title_text="RPM",    title_font=dict(color='#1f77b4', size=12, family="Arial Black"), row=1, col=1, secondary_y=False)
                                         fig_ia.update_yaxes(title_text="TPS (%)", title_font=dict(color='#2ca02c', size=12, family="Arial Black"), row=1, col=1, secondary_y=True)
 
                                         # --- PAINÉIS DO MEIO: Sensores Culpados ---
+                                        alvo_culpado_adicionado = False
                                         for i, sensor in enumerate(sensores_para_grafico):
                                             r = i + 2
                                             
-                                            mask_falha_sensor = (df_alvo['Falha_Confirmada'] & (df_alvo['Culpado_Final'] == sensor)).rolling(window=FREQ_HZ, center=True, min_periods=1).max() > 0
+                                            mask_falha_sensor = (
+                                                df_alvo['Falha_Confirmada'] & (df_alvo['Culpado_Final'] == sensor)
+                                            ).rolling(window=FREQ_HZ, center=True, min_periods=1).max() > 0
                                             
                                             if mask_falha_sensor.any():
-                                                starts = tempo_plot[mask_falha_sensor & ~mask_falha_sensor.shift(1, fill_value=False)]
-                                                ends = tempo_plot[mask_falha_sensor & ~mask_falha_sensor.shift(-1, fill_value=False)]
+                                                mf_arr = mask_falha_sensor.values
+                                                tp_arr  = tempo_plot.values
+                                                b_start, b_end = [], []
+                                                em_bloco = False
+                                                for k in range(len(mf_arr)):
+                                                    if mf_arr[k] and not em_bloco:
+                                                        b_start.append(tp_arr[k]); em_bloco = True
+                                                    elif not mf_arr[k] and em_bloco:
+                                                        b_end.append(tp_arr[k - 1]); em_bloco = False
+                                                if em_bloco: b_end.append(tp_arr[-1])
                                                 
-                                                for s, e in zip(starts, ends):
-                                                    fig_ia.add_vrect(x0=s, x1=e, fillcolor="red", opacity=0.3, layer="below", line_width=0, row=r, col=1)
+                                                for s_t, e_t in zip(b_start, b_end):
+                                                    fig_ia.add_vrect(x0=s_t, x1=e_t, fillcolor="red", opacity=0.3, layer="below", line_width=0, row=r, col=1)
                                                 
-                                                if i == 0:
-                                                    fig_ia.add_trace(go.Scatter(x=[None], y=[None], mode='markers', marker=dict(color='red', size=10, symbol='square'), name='Alvo Culpado'), row=r, col=1)
+                                                if not alvo_culpado_adicionado:
+                                                    fig_ia.add_trace(go.Scatter(
+                                                        x=[None], y=[None], mode='markers',
+                                                        marker=dict(color='red', size=10, symbol='square'),
+                                                        name='Alvo Culpado'
+                                                    ), row=r, col=1)
+                                                    alvo_culpado_adicionado = True
 
-                                            fig_ia.add_trace(go.Scatter(x=tempo_plot, y=df_alvo[sensor], name=sensor, line=dict(color='darkorange', width=2), hovertemplate=f'{sensor}: %{{y}}<br>Tempo: %{{x|%M:%S.%L}}<extra></extra>'), row=r, col=1)
+                                            fig_ia.add_trace(go.Scatter(
+                                                x=tempo_plot, y=df_alvo[sensor],
+                                                name=sensor, line=dict(color='darkorange', width=2),
+                                                hovertemplate=f'{sensor}: %{{y}}<br>Tempo: %{{x|%M:%S.%L}}<extra></extra>'
+                                            ), row=r, col=1)
                                             fig_ia.update_yaxes(title_text=sensor, title_font=dict(color='darkorange', size=12, family="Arial Black"), row=r, col=1)
 
-                                        # --- PAINEL FINAL: IA Global ---
+                                        # --- PAINEL FINAL: Avaliação Global da IA ---
                                         last_r = num_paineis
                                         falha_geral_visual = df_alvo['Falha_Confirmada'].rolling(window=FREQ_HZ, center=True, min_periods=1).max() > 0
                                         
                                         if falha_geral_visual.any():
-                                            starts = tempo_plot[falha_geral_visual & ~falha_geral_visual.shift(1, fill_value=False)]
-                                            ends = tempo_plot[falha_geral_visual & ~falha_geral_visual.shift(-1, fill_value=False)]
+                                            fg_arr = falha_geral_visual.values
+                                            tp_arr  = tempo_plot.values
+                                            b_start, b_end = [], []
+                                            em_bloco = False
+                                            for k in range(len(fg_arr)):
+                                                if fg_arr[k] and not em_bloco:
+                                                    b_start.append(tp_arr[k]); em_bloco = True
+                                                elif not fg_arr[k] and em_bloco:
+                                                    b_end.append(tp_arr[k - 1]); em_bloco = False
+                                            if em_bloco: b_end.append(tp_arr[-1])
                                             
-                                            for s, e in zip(starts, ends):
-                                                fig_ia.add_vrect(x0=s, x1=e, fillcolor="red", opacity=0.3, layer="below", line_width=0, row=last_r, col=1)
+                                            for s_t, e_t in zip(b_start, b_end):
+                                                fig_ia.add_vrect(x0=s_t, x1=e_t, fillcolor="red", opacity=0.3, layer="below", line_width=0, row=last_r, col=1)
                                             
-                                            fig_ia.add_trace(go.Scatter(x=[None], y=[None], mode='markers', marker=dict(color='red', size=10, symbol='square'), name='Falha Sistêmica'), row=last_r, col=1)
+                                            fig_ia.add_trace(go.Scatter(
+                                                x=[None], y=[None], mode='markers',
+                                                marker=dict(color='red', size=10, symbol='square'),
+                                                name='Falha Sistêmica Confirmada'
+                                            ), row=last_r, col=1)
 
-                                        fig_ia.add_trace(go.Scatter(x=tempo_plot, y=df_alvo['Severidade_Final'], name='Gravidade (MSE)', line=dict(color='black', width=1.5), hovertemplate='Gravidade: %{y:.2f}<br>Tempo: %{x|%M:%S.%L}<extra></extra>'), row=last_r, col=1)
-                                        fig_ia.add_trace(go.Scatter(x=tempo_plot, y=df_alvo['Limite_MAD_Estado'], name='Threshold MAD', line=dict(color='red', dash='dash', width=2), hovertemplate='Threshold: %{y:.2f}<br>Tempo: %{x|%M:%S.%L}<extra></extra>'), row=last_r, col=1)
-                                        fig_ia.update_yaxes(title_text="Gravidade", title_font=dict(color='black', size=12, family="Arial Black"), row=last_r, col=1)
+                                        fig_ia.add_trace(go.Scatter(
+                                            x=tempo_plot, y=df_alvo['Severidade_Final'],
+                                            name='Avaliação Cruzada (Sensores+Tensões+Flags)',
+                                            line=dict(color='black', width=1.5),
+                                            hovertemplate='Gravidade: %{y:.2f}<br>Tempo: %{x|%M:%S.%L}<extra></extra>'
+                                        ), row=last_r, col=1)
+                                        fig_ia.add_trace(go.Scatter(
+                                            x=tempo_plot, y=df_alvo['Limite_MAD_Estado'],
+                                            name='Threshold Dinâmico (MAD)',
+                                            line=dict(color='red', dash='dash', width=2),
+                                            hovertemplate='Threshold: %{y:.2f}<br>Tempo: %{x|%M:%S.%L}<extra></extra>'
+                                        ), row=last_r, col=1)
+                                        fig_ia.update_yaxes(title_text="Gravidade\n(Erro MSE)", title_font=dict(color='black', size=12, family="Arial Black"), row=last_r, col=1)
 
                                         # --- FORMATAÇÃO GERAL PLOTLY ---
+                                        altura_total = 300 + (num_paineis * 220)
                                         fig_ia.update_layout(
-                                            height=300 + (len(sensores_para_grafico) * 200),
+                                            height=altura_total,
                                             template="plotly_white", 
-                                            margin=dict(l=40, r=40, t=50, b=80), 
+                                            margin=dict(l=60, r=40, t=60, b=80), 
                                             hovermode="x unified",
                                             showlegend=True,
-                                            legend=dict(orientation="h", yanchor="top", y=-0.05, xanchor="center", x=0.5) 
+                                            legend=dict(orientation="h", yanchor="top", y=-0.04, xanchor="center", x=0.5)
                                         )
                                         
-                                        # Máscara Mágica Temporal e remoção de títulos que sujavam o gráfico
-                                        fig_ia.update_xaxes(
-                                            tickformat="%H:%M:%S", 
-                                            hoverformat="%H:%M:%S.%L", 
-                                            showgrid=True, gridcolor='lightgray',
-                                            title_text="" 
-                                        )
-                                        
-                                        fig_ia.update_xaxes(title_text="Tempo Real da Gravação (HH:MM:SS)", title_font=dict(size=14, family="Arial Black"), row=last_r, col=1)
+                                        # Formata todos os eixos X como MM:SS (ou numérico se não for datetime)
+                                        if is_datetime_axis:
+                                            fig_ia.update_xaxes(
+                                                tickformat="%M:%S",
+                                                hoverformat="%H:%M:%S.%L",
+                                                showgrid=True, gridcolor='lightgray',
+                                                title_text=""
+                                            )
+                                            fig_ia.update_xaxes(
+                                                title_text="Tempo Real de Funcionamento (MM:SS)",
+                                                title_font=dict(size=14, family="Arial Black"),
+                                                row=last_r, col=1
+                                            )
+                                        else:
+                                            fig_ia.update_xaxes(showgrid=True, gridcolor='lightgray', title_text="")
+                                            fig_ia.update_xaxes(title_text="Tempo (amostras)", title_font=dict(size=14, family="Arial Black"), row=last_r, col=1)
+
                                         fig_ia.update_yaxes(showgrid=True, gridcolor='lightgray')
                                         
                                         st.plotly_chart(fig_ia, use_container_width=True)
