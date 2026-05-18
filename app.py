@@ -500,11 +500,17 @@ elif st.session_state.view == 'dashboard':
                                         
                                         texto_laudo_llm = ""
                                         assinatura_dtw = ""
+                                        
+                                        # INICIALIZAÇÃO CORRETA DAS VARIÁVEIS DE FALHA (RESOLVE O BUG)
+                                        falhas_fisicas = pd.DataFrame()
+                                        falhas_ia = pd.DataFrame()
 
                                         if picos_falha > 0:
                                             st.error(f"🚨 A IA detetou anomalias reais! ({picos_falha} frames confirmados, ~{picos_falha/FREQ_HZ:.1f} segundos)")
                                             
                                             falhas_fisicas = falhas_confirmadas[falhas_confirmadas['Culpado_Bruto'] != "IA_Genérica"]
+                                            falhas_ia = falhas_confirmadas[falhas_confirmadas['Culpado_Bruto'] == "IA_Genérica"]
+                                            
                                             if len(falhas_fisicas) > 0:
                                                 principal = falhas_fisicas['Diagnostico_Texto'].value_counts().index[0]
                                                 culpados = falhas_fisicas['Culpado_Final'].unique().tolist()
@@ -517,8 +523,7 @@ elif st.session_state.view == 'dashboard':
                                                 diag_dtw, distancia = biblioteca.classificar_anomalia(df_recorte, culpados)
                                                 assinatura_dtw = diag_dtw
                                                 st.info(f"**🎯 Análise de Curva (DTW):** {diag_dtw}")
-                                            else:
-                                                falhas_ia = falhas_confirmadas[falhas_confirmadas['Culpado_Bruto'] == "IA_Genérica"]
+                                            elif len(falhas_ia) > 0:
                                                 principal = falhas_ia['Culpado_Final'].value_counts().index[0]
                                                 st.warning(f"**🧠 Causa Raiz Estatística (IA):** Anomalia centrada em {principal}")
                                                 texto_laudo_llm = f"Desvio matemático grave focado no sensor {principal}"
