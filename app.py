@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import requests
 import io
 import numpy as np
@@ -392,7 +393,6 @@ elif st.session_state.view == 'dashboard':
                                     if modelo is None:
                                         st.error("Falha ao carregar o Cérebro Neural. Operação cancelada.")
                                     else:
-                                        # 2.1 Reconstrução Dinâmica do DataFrame Cru para o Pipeline da IA (6Hz)
                                         # Lemos diretamente do log selecionado cru para garantir formatação limpa
                                         if isinstance(st.session_state.log_selecionado, str) and st.session_state.log_selecionado.startswith("http"):
                                             resposta = requests.get(st.session_state.log_selecionado)
@@ -417,7 +417,7 @@ elif st.session_state.view == 'dashboard':
                                         df_alvo['CTS_C_Diff_Abs'] = df_alvo['CTS (°C)'].diff().fillna(0).abs()
                                         df_alvo['TPS_V_Diff_Abs'] = df_alvo['TPS (V)'].diff().fillna(0).abs()
                                         
-                                        # Limites Globais (Mock dinâmico baseado no dataset saudável guardado)
+                                        # Limites Globais
                                         limites_por_estado = {'Idle': 3.5, 'Cruise': 4.0, 'Decel': 4.5, 'WOT': 5.0, 'Warmup': 6.0}
                                         limite_global_mad = 4.0
 
@@ -528,23 +528,80 @@ elif st.session_state.view == 'dashboard':
                                             texto_laudo_llm = "Nenhum problema encontrado. O motor está a funcionar perfeitamente dentro das tolerâncias físicas e estatísticas."
                                             assinatura_dtw = "Nenhuma"
 
-                                        # --- GRÁFICO DA IA EM PLOTLY ---
-                                        st.markdown("#### Gráfico de Tensão da Inteligência Artificial")
-                                        fig_ia = go.Figure()
+                                        # =========================================================
+                                        # GRÁFICOS RECONSTRUÍDOS (Igual ao Matplotlib original)
+                                        # =========================================================
+                                        st.markdown("---")
+                                        st.markdown("#### 📊 Relatório Visual do Diagnóstico")
                                         
-                                        # Para usar o eixo de tempo do df principal original (que já foi formatado em ms)
-                                        # Vamos criar um array de tempo fictício caso o merge de index falhe, apenas para visualização
-                                        tempo_plot = df_alvo.index if 'Tempo_Relogio' not in df_alvo.columns else df_alvo['Tempo_Relogio']
+                                        # 1. Obter a lista de sensores para o gráfico
+                                        sensores_para_grafico = []
+                                        if picos_falha > 0:
+                                            if len(falhas_fisicas) > 0:
+                                                sensores_para_grafico.extend(falhas_fisicas['Culpado_Final'].unique().tolist())
+                                            if len(falhas_ia) > 0:
+                                                sensores_para_grafico.extend(falhas_ia['Culpado_Final'].unique().tolist())
+                                                
+                                        # Remove duplicados mantendo a ordem e limita a 4 para a tela não explodir
+                                        sensores_para_grafico = list(dict.fromkeys(sensores_para_grafico))[:4]
                                         
-                                        fig_ia.add_trace(go.Scatter(x=tempo_plot, y=df_alvo['Severidade_Final'], name='Erro de Reconstrução (MSE)', line=dict(color='yellow')))
-                                        fig_ia.add_trace(go.Scatter(x=tempo_plot, y=df_alvo['Limite_MAD_Estado'], name='Limite Tolerância Dinâmico', line=dict(color='red', dash='dash')))
+                                        # Construção dinâmica de subplots (1 painel RPM/TPS + N painéis sensores + 1 painel final IA)
+                                        num_rows = 2 + len(sensores_para_grafico)
+                                        specs = [[{"secondary_y": True}]] + [[{"secondary_y": False}]] * (num_rows - 1)
                                         
-                                        # Preenchimento das zonas de falha
-                                        df_plot_falha = df_alvo.copy()
-                                        df_plot_falha.loc[~df_plot_falha['Falha_Confirmada'], 'Severidade_Final'] = np.nan
-                                        fig_ia.add_trace(go.Scatter(x=tempo_plot, y=df_plot_falha['Severidade_Final'], fill='tonexty', mode='none', fillcolor='rgba(255,0,0,0.4)', name='Área de Falha Confirmada'))
+                                        titulos_paineis = ["RPM vs TPS (%) - Arquivo Analisado"]
+                                        for s in sensores_para_grafico:
+                                            titulos_paineis.append(f"Monitorização de Falha: {s}")
+                                        titulos_paineis.append("Avaliação Cruzada (Cérebro Global da IA)")
 
-                                        fig_ia.update_layout(height=350, template="plotly_dark", margin=dict(l=10, r=10, t=30, b=10), hovermode="x unified")
+                                        fig_ia = make_subplots(rows=num_rows, cols=1, shared_xaxes=True, vertical_spacing=0.08, specs=specs, subplot_titles=titulos_paineis)
+                                        
+                                        # O Index do DataFrame do pipeline é um DateTime que representa os segundos de forma linear. 
+                                        # Isso vai forçar o Plotly a mostrar "MM:SS" lindamente no eixo X!
+                                        tempo_plot = df_alvo.index 
+                                        
+                                        # --- PAINEL 1: RPM e TPS ---
+                                        fig_ia.add_trace(go.Scatter(x=tempo_plot, y=df_alvo['RPM'], name='RPM', line=dict(color='#3498db', width=2)), row=1, col=1, secondary_y=False)
+                                        fig_ia.add_trace(go.Scatter(x=tempo_plot, y=df_alvo['TPS (%)'], name='TPS (%)', line=dict(color='#2ecc71', width=2)), row=1, col=1, secondary_y=True)
+                                        
+                                        # --- PAINÉIS DO MEIO: Sensores Culpados ---
+                                        for i, sensor in enumerate(sensores_para_grafico):
+                                            r = i + 2
+                                            
+                                            # Desenhamos uma barra vertical falsa e transparente para o fundo vermelho (muito mais fiável que o fill='tozeroy' com gaps)
+                                            # Calculamos o limite superior dinâmico do sensor
+                                            limite_superior = df_alvo[sensor].max() * 1.2
+                                            bg_fault = np.where(df_alvo['Falha_Confirmada'] & (df_alvo['Culpado_Final'] == sensor), limite_superior, np.nan)
+                                            
+                                            fig_ia.add_trace(go.Scatter(x=tempo_plot, y=bg_fault, fill='tozeroy', mode='none', fillcolor='rgba(231, 76, 60, 0.2)', name=f'Alvo Culpado', hoverinfo='skip', showlegend=False), row=r, col=1)
+                                            # E a linha real do sensor
+                                            fig_ia.add_trace(go.Scatter(x=tempo_plot, y=df_alvo[sensor], name=sensor, line=dict(color='#e67e22', width=2)), row=r, col=1)
+                                            fig_ia.update_yaxes(title_text=sensor, row=r, col=1)
+
+                                        # --- PAINEL FINAL: IA (Severidade e Threshold) ---
+                                        last_r = num_rows
+                                        # Adicionamos primeiro o fundo vermelho da falha global
+                                        if picos_falha > 0:
+                                            lim_ia_max = max(df_alvo['Severidade_Final'].max(), df_alvo['Limite_MAD_Estado'].max()) * 1.1
+                                            bg_fault_geral = np.where(df_alvo['Falha_Confirmada'], lim_ia_max, np.nan)
+                                            fig_ia.add_trace(go.Scatter(x=tempo_plot, y=bg_fault_geral, fill='tozeroy', mode='none', fillcolor='rgba(231, 76, 60, 0.3)', name='Falha Sistêmica', hoverinfo='skip', showlegend=False), row=last_r, col=1)
+
+                                        fig_ia.add_trace(go.Scatter(x=tempo_plot, y=df_alvo['Severidade_Final'], name='Erro MSE', line=dict(color='white', width=1.5)), row=last_r, col=1)
+                                        fig_ia.add_trace(go.Scatter(x=tempo_plot, y=df_alvo['Limite_MAD_Estado'], name='Threshold MAD', line=dict(color='#e74c3c', dash='dash', width=2)), row=last_r, col=1)
+                                        fig_ia.update_yaxes(title_text="Gravidade", row=last_r, col=1)
+
+                                        # Formatação Master do Plotly
+                                        fig_ia.update_layout(
+                                            height=250 + (len(sensores_para_grafico) * 200), # Altura dinâmica baseada na quantidade de sensores
+                                            template="plotly_dark", 
+                                            margin=dict(l=10, r=10, t=50, b=30), 
+                                            hovermode="x unified",
+                                            showlegend=False # Esconde a legenda lateral poluída (fica no hover)
+                                        )
+                                        
+                                        # A Mágica do Tempo: Formata o eixo X partilhado para "Minutos:Segundos"
+                                        fig_ia.update_xaxes(title_text="Tempo Real da Gravação (MM:SS)", tickformat="%M:%S", hoverformat="%M:%S.%L", row=last_r, col=1)
+                                        
                                         st.plotly_chart(fig_ia, use_container_width=True)
 
                                         # --- RESPOSTA HUMANIZADA (LLM) ---
@@ -581,9 +638,12 @@ elif st.session_state.view == 'dashboard':
                                                         resposta_llm = llm_model.generate_content(prompt)
                                                         st.info(resposta_llm.text)
                                                     else:
-                                                        st.warning("⚠️ API Key do Gemini não encontrada nas Variáveis de Ambiente do Railway. Funcionalidade de texto humanizado desativada.")
+                                                        st.warning("⚠️ A Chave API do Gemini não foi encontrada no servidor.")
                                                 except Exception as e_llm:
-                                                    st.warning("⚠️ Ocorreu um erro ao comunicar com o servidor da IA linguística. Detalhe técnico apenas na interface nativa.")
+                                                    # Agora mostramos o erro verdadeiro na tela para facilitar a depuração
+                                                    st.error("⚠️ Ocorreu um erro ao comunicar com a Inteligência Artificial linguística (Gemini).")
+                                                    st.code(f"Detalhe Técnico do Servidor: {str(e_llm)}")
+                                                    st.markdown("*(Dica: Verifique se a sua GEMINI_API_KEY está correta na Railway ou se esgotou o seu limite de utilização diário).*")
 
                                 except Exception as err:
                                     st.error(f"❌ Ocorreu um erro inesperado durante a análise de IA: {err}")
