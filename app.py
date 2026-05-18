@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 import requests
 import io
 import numpy as np
@@ -26,13 +25,15 @@ if ENABLE_AI_DIAGNOSIS:
         import os
         os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
         from tensorflow.keras.models import load_model
-        import google.generativeai as genai
         
-        # Módulos locais do projeto 
+        # Módulos locais do projeto (certifique-se que estes ficheiros estão na mesma pasta)
         from data_pipeline import MultecDataPipeline
         from config_ia import COLUNAS_IA, SENSORES_CAUSA_RAIZ
         from scanner_especialista import MecanicoEspecialista_Multec700, calcular_mad_threshold, COLUNAS as COLUNAS_SCANNER
         from biblioteca_dtw import BibliotecaDefeitosDTW
+        
+        # Importação do LLM (Gemini)
+        import google.generativeai as genai
         
         IA_DISPONIVEL = True
     except Exception as e:
@@ -165,12 +166,16 @@ def carregar_dados(arquivo_ou_url_ou_conteudo, colunas):
         st.error(f"Erro ao processar o arquivo: {e}")
         return None
 
+# ==============================================================================
+# CACHE DOS MODELOS DE IA (Carrega apenas 1 vez na memória do servidor)
+# ==============================================================================
 @st.cache_resource
 def carregar_cerebro_ia():
-    if not IA_DISPONIVEL: return None, None, None, None, None
+    if not IA_DISPONIVEL: return None, None, None
     try:
         scaler = joblib.load("scaler_multec.pkl")
         modelo = load_model("cerebro_multec_autoencoder.keras")
+        # Criamos também as instâncias das classes aqui para agilizar
         pipeline = MultecDataPipeline(target_freq_hz=6)
         mestre = MecanicoEspecialista_Multec700()
         biblioteca = BibliotecaDefeitosDTW()
@@ -306,7 +311,7 @@ elif st.session_state.view == 'dashboard':
                 col_c.metric("TPS Médio", f"{df['TPS (%)'].mean():.1f} %")
                 col_d.metric("MAP Médio", f"{df['MAP (kPa)'].mean():.1f} kPa")
 
-            # ABA 2: GRÁFICOS (Telemetria)
+            # ABA 2: GRÁFICOS
             with aba2:
                 colunas_analogicas = list(LIMITES_SENSORES.keys())
                 colunas_flags = [c for c in df.columns if c.startswith("Flag_")]
@@ -356,6 +361,7 @@ elif st.session_state.view == 'dashboard':
             with aba3:
                 st.subheader("Módulo de Diagnóstico e Análise de Falhas")
                 
+                # 1. SISTEMA ORIGINAL DA ECU (Preservado)
                 st.markdown("### Erros Registados na ECU (Clássico)")
                 colunas_erros = [c for c in df.columns if c.startswith("Err_")]
                 erros_ocorridos = df[colunas_erros].sum()
@@ -369,22 +375,25 @@ elif st.session_state.view == 'dashboard':
 
                 st.markdown("---")
                 
+                # 2. SISTEMA DE IA NEURO-SIMBÓLICO (Protegido por Kill Switch)
                 if ENABLE_AI_DIAGNOSIS:
                     st.markdown("### 🤖 Diagnóstico Avançado IA (Neuro-Simbólico)")
                     st.markdown("*(Fase 1: Mestre Mecânico & Estatística Robusta | Fase 2: Motor DTW)*")
                     
                     if not IA_DISPONIVEL:
                         st.warning(f"O módulo de IA não está disponível neste servidor. Erro interno: {ERRO_CARREGAMENTO_IA}")
-                        st.info("Verifique se as bibliotecas estão corretamente instaladas na máquina hospedeira.")
                     else:
                         if st.button("🔍 Executar Análise Profunda com IA", type="primary"):
                             with st.spinner("A inicializar os modelos matemáticos e a avaliar o Log..."):
+                                
                                 try:
                                     scaler, modelo, pipeline, mestre, biblioteca = carregar_cerebro_ia()
                                     
                                     if modelo is None:
                                         st.error("Falha ao carregar o Cérebro Neural. Operação cancelada.")
                                     else:
+                                        # 2.1 Reconstrução Dinâmica do DataFrame Cru para o Pipeline da IA (6Hz)
+                                        # Lemos diretamente do log selecionado cru para garantir formatação limpa
                                         if isinstance(st.session_state.log_selecionado, str) and st.session_state.log_selecionado.startswith("http"):
                                             resposta = requests.get(st.session_state.log_selecionado)
                                             texto_cru = resposta.text
@@ -394,8 +403,10 @@ elif st.session_state.view == 'dashboard':
                                         linhas_validas = [l for l in texto_cru.split('\n') if len(l.split('|')) == len(COLUNAS_SCANNER)]
                                         df_cru_ia = pd.read_csv(io.StringIO('\n'.join(linhas_validas)), sep="|", header=None, names=COLUNAS_SCANNER)
                                         
+                                        # Passa pelo funil da Fase 1 (100% igual ao scanner_especialista.py)
                                         df_alvo = pipeline.processar_log(df_cru_ia)
                                         
+                                        # Features Temporais
                                         df_alvo['CO2_Diff'] = df_alvo['CO2 (V)'].diff().fillna(0)
                                         df_alvo['TPS_Diff_Abs'] = df_alvo['TPS (%)'].diff().fillna(0).abs()
                                         df_alvo['RPM_Diff_Abs'] = df_alvo['RPM'].diff().fillna(0).abs()
@@ -406,9 +417,11 @@ elif st.session_state.view == 'dashboard':
                                         df_alvo['CTS_C_Diff_Abs'] = df_alvo['CTS (°C)'].diff().fillna(0).abs()
                                         df_alvo['TPS_V_Diff_Abs'] = df_alvo['TPS (V)'].diff().fillna(0).abs()
                                         
+                                        # Limites Globais (Mock dinâmico baseado no dataset saudável guardado)
                                         limites_por_estado = {'Idle': 3.5, 'Cruise': 4.0, 'Decel': 4.5, 'WOT': 5.0, 'Warmup': 6.0}
                                         limite_global_mad = 4.0
 
+                                        # Cálculo de Erros
                                         dados_normalizados = scaler.transform(df_alvo[COLUNAS_IA])
                                         dados_reconstruidos = modelo.predict(dados_normalizados, verbose=0)
                                         
@@ -418,6 +431,7 @@ elif st.session_state.view == 'dashboard':
                                         df_alvo['Erro_IA_Pura'] = np.mean(erros_individuais_brutos, axis=1)
                                         df_alvo['Limite_MAD_Estado'] = df_alvo['Estado_Motor'].map(limites_por_estado).fillna(limite_global_mad)
 
+                                        # Mestre Mecânico
                                         diagnosticos, sensores_culpados_brutos, grau_severidade = [], [], []
                                         for index, linha in df_alvo.iterrows():
                                             erro_ia = linha['Erro_IA_Pura']
@@ -442,6 +456,7 @@ elif st.session_state.view == 'dashboard':
                                         df_alvo['Culpado_Bruto'] = sensores_culpados_brutos
                                         df_alvo['Culpado_Final'] = df_alvo['Culpado_Bruto']
                                         
+                                        # Crivo de Sanidade
                                         mask_ia = df_alvo['Culpado_Bruto'] == 'IA_Genérica'
                                         if mask_ia.any():
                                             max_sensors = df_erros_individuais.loc[mask_ia, SENSORES_CAUSA_RAIZ].idxmax(axis=1)
@@ -468,6 +483,7 @@ elif st.session_state.view == 'dashboard':
                                             df_alvo.loc[invalid_ia_mask, 'Diagnostico_Texto'] = "Normal"
                                             df_alvo.loc[invalid_ia_mask, 'Severidade_Final'] = 0
 
+                                        # Confirmação Temporal e Filtro de Bordas
                                         FREQ_HZ = 6
                                         frames_persistencia = max(2, int(FREQ_HZ * 0.4)) 
                                         anomalia_instantanea = df_alvo['Severidade_Final'] > df_alvo['Limite_MAD_Estado']
@@ -478,21 +494,17 @@ elif st.session_state.view == 'dashboard':
                                         df_alvo.iloc[:n_start, df_alvo.columns.get_loc('Falha_Confirmada')] = False
                                         df_alvo.iloc[-n_end:, df_alvo.columns.get_loc('Falha_Confirmada')] = False
 
+                                        # --- LAUDO FINAL DA FASE 1 & FASE 2 ---
                                         falhas_confirmadas = df_alvo[df_alvo['Falha_Confirmada']]
                                         picos_falha = len(falhas_confirmadas)
                                         
                                         texto_laudo_llm = ""
                                         assinatura_dtw = ""
-                                        
-                                        falhas_fisicas = pd.DataFrame()
-                                        falhas_ia = pd.DataFrame()
 
                                         if picos_falha > 0:
                                             st.error(f"🚨 A IA detetou anomalias reais! ({picos_falha} frames confirmados, ~{picos_falha/FREQ_HZ:.1f} segundos)")
                                             
                                             falhas_fisicas = falhas_confirmadas[falhas_confirmadas['Culpado_Bruto'] != "IA_Genérica"]
-                                            falhas_ia = falhas_confirmadas[falhas_confirmadas['Culpado_Bruto'] == "IA_Genérica"]
-                                            
                                             if len(falhas_fisicas) > 0:
                                                 principal = falhas_fisicas['Diagnostico_Texto'].value_counts().index[0]
                                                 culpados = falhas_fisicas['Culpado_Final'].unique().tolist()
@@ -500,11 +512,13 @@ elif st.session_state.view == 'dashboard':
                                                 st.warning(f"**Sensores Culpados:** {culpados}")
                                                 texto_laudo_llm = principal
                                                 
+                                                # ORQUESTRAÇÃO DTW (FASE 2)
                                                 df_recorte = df_alvo[df_alvo['Falha_Confirmada']].copy()
                                                 diag_dtw, distancia = biblioteca.classificar_anomalia(df_recorte, culpados)
                                                 assinatura_dtw = diag_dtw
                                                 st.info(f"**🎯 Análise de Curva (DTW):** {diag_dtw}")
-                                            elif len(falhas_ia) > 0:
+                                            else:
+                                                falhas_ia = falhas_confirmadas[falhas_confirmadas['Culpado_Bruto'] == "IA_Genérica"]
                                                 principal = falhas_ia['Culpado_Final'].value_counts().index[0]
                                                 st.warning(f"**🧠 Causa Raiz Estatística (IA):** Anomalia centrada em {principal}")
                                                 texto_laudo_llm = f"Desvio matemático grave focado no sensor {principal}"
@@ -514,326 +528,39 @@ elif st.session_state.view == 'dashboard':
                                             texto_laudo_llm = "Nenhum problema encontrado. O motor está a funcionar perfeitamente dentro das tolerâncias físicas e estatísticas."
                                             assinatura_dtw = "Nenhuma"
 
-# =========================================================
-# GRÁFICOS RECONSTRUÍDOS (VERSÃO FINAL)
-# =========================================================
-st.markdown("---")
-st.markdown("#### 📊 Relatório Visual do Diagnóstico")
+                                        # --- GRÁFICO DA IA EM PLOTLY ---
+                                        st.markdown("#### Gráfico de Tensão da Inteligência Artificial")
+                                        fig_ia = go.Figure()
+                                        
+                                        # Para usar o eixo de tempo do df principal original (que já foi formatado em ms)
+                                        # Vamos criar um array de tempo fictício caso o merge de index falhe, apenas para visualização
+                                        tempo_plot = df_alvo.index if 'Tempo_Relogio' not in df_alvo.columns else df_alvo['Tempo_Relogio']
+                                        
+                                        fig_ia.add_trace(go.Scatter(x=tempo_plot, y=df_alvo['Severidade_Final'], name='Erro de Reconstrução (MSE)', line=dict(color='yellow')))
+                                        fig_ia.add_trace(go.Scatter(x=tempo_plot, y=df_alvo['Limite_MAD_Estado'], name='Limite Tolerância Dinâmico', line=dict(color='red', dash='dash')))
+                                        
+                                        # Preenchimento das zonas de falha
+                                        df_plot_falha = df_alvo.copy()
+                                        df_plot_falha.loc[~df_plot_falha['Falha_Confirmada'], 'Severidade_Final'] = np.nan
+                                        fig_ia.add_trace(go.Scatter(x=tempo_plot, y=df_plot_falha['Severidade_Final'], fill='tonexty', mode='none', fillcolor='rgba(255,0,0,0.4)', name='Área de Falha Confirmada'))
 
-sensores_para_grafico = []
+                                        fig_ia.update_layout(height=350, template="plotly_dark", margin=dict(l=10, r=10, t=30, b=10), hovermode="x unified")
+                                        st.plotly_chart(fig_ia, use_container_width=True)
 
-if picos_falha > 0:
-    if len(falhas_fisicas) > 0:
-        sensores_para_grafico.extend(
-            falhas_fisicas['Culpado_Final'].unique().tolist()
-        )
-
-    if len(falhas_ia) > 0:
-        sensores_para_grafico.extend(
-            falhas_ia['Culpado_Final'].unique().tolist()
-        )
-
-# Remove sensores inválidos
-sensores_para_grafico = [
-    s for s in sensores_para_grafico
-    if s in df_alvo.columns and s not in ("Nenhum", "IA_Genérica")
-]
-
-# Remove duplicados e limita quantidade
-sensores_para_grafico = list(
-    dict.fromkeys(sensores_para_grafico)
-)[:4]
-
-num_paineis = 2 + len(sensores_para_grafico)
-
-titulos_paineis = [
-    "RPM vs TPS (%) - Estados do Motor"
-]
-
-for sensor in sensores_para_grafico:
-    titulos_paineis.append(
-        f"Monitorização de Falha: {sensor}"
-    )
-
-titulos_paineis.append(
-    "Avaliação Global (Cérebro da IA)"
-)
-
-# =====================================================
-# TEMPO REAL DO LOG (igual telemetria)
-# =====================================================
-if "RTM_Continuo" in df_alvo.columns:
-    tempo_plot = pd.to_datetime(
-        df_alvo["RTM_Continuo"],
-        unit="s"
-    )
-
-elif "RTM (s)" in df_alvo.columns:
-    tempo_plot = pd.to_datetime(
-        df_alvo["RTM (s)"],
-        unit="s"
-    )
-
-elif "Tempo_Relogio" in df_alvo.columns:
-    tempo_plot = df_alvo["Tempo_Relogio"]
-
-else:
-    tempo_plot = df.loc[
-        df_alvo.index,
-        "Tempo_Relogio"
-    ]
-
-# =====================================================
-# SUBPLOTS
-# =====================================================
-fig_ia = make_subplots(
-    rows=num_paineis,
-    cols=1,
-    shared_xaxes=False,
-    vertical_spacing=0.04,
-    subplot_titles=titulos_paineis,
-    specs=[[{"secondary_y": True}]] +
-          [[{"secondary_y": False}]] * (num_paineis - 1)
-)
-
-# =====================================================
-# PAINEL 1 -> RPM + TPS
-# =====================================================
-estados_cores = {
-    "Idle": "cyan",
-    "Cruise": "gray",
-    "WOT": "red",
-    "Decel": "blue",
-    "Warmup": "magenta"
-}
-
-for estado, cor in estados_cores.items():
-    mask_estado = df_alvo["Estado_Motor"] == estado
-
-    if mask_estado.any():
-        indices = np.where(mask_estado)[0]
-
-        for idx in indices:
-            fig_ia.add_vrect(
-                x0=tempo_plot.iloc[idx],
-                x1=tempo_plot.iloc[idx],
-                fillcolor=cor,
-                opacity=0.15,
-                line_width=0,
-                row=1,
-                col=1
-            )
-
-fig_ia.add_trace(
-    go.Scatter(
-        x=tempo_plot,
-        y=df_alvo["RPM"],
-        name="RPM",
-        line=dict(
-            color="royalblue",
-            width=2
-        )
-    ),
-    row=1,
-    col=1,
-    secondary_y=False
-)
-
-fig_ia.add_trace(
-    go.Scatter(
-        x=tempo_plot,
-        y=df_alvo["TPS (%)"],
-        name="TPS (%)",
-        line=dict(
-            color="green",
-            width=2
-        )
-    ),
-    row=1,
-    col=1,
-    secondary_y=True
-)
-
-fig_ia.update_yaxes(
-    title_text="RPM",
-    row=1,
-    col=1,
-    secondary_y=False
-)
-
-fig_ia.update_yaxes(
-    title_text="TPS (%)",
-    row=1,
-    col=1,
-    secondary_y=True
-)
-
-# =====================================================
-# PAINÉIS DOS SENSORES CULPADOS
-# =====================================================
-for i, sensor in enumerate(sensores_para_grafico):
-    row_num = i + 2
-
-    fig_ia.add_trace(
-        go.Scatter(
-            x=tempo_plot,
-            y=df_alvo[sensor],
-            name=sensor,
-            line=dict(
-                color="darkorange",
-                width=2
-            )
-        ),
-        row=row_num,
-        col=1
-    )
-
-    mask_falha = (
-        df_alvo["Falha_Confirmada"] &
-        (df_alvo["Culpado_Final"] == sensor)
-    )
-
-    if mask_falha.any():
-        indices_falha = np.where(mask_falha)[0]
-
-        for idx in indices_falha:
-            fig_ia.add_vrect(
-                x0=tempo_plot.iloc[idx],
-                x1=tempo_plot.iloc[idx],
-                fillcolor="red",
-                opacity=0.25,
-                line_width=0,
-                row=row_num,
-                col=1
-            )
-
-    fig_ia.update_yaxes(
-        title_text=sensor,
-        row=row_num,
-        col=1
-    )
-
-# =====================================================
-# PAINEL FINAL -> IA GLOBAL
-# =====================================================
-ultima_linha = num_paineis
-
-fig_ia.add_trace(
-    go.Scatter(
-        x=tempo_plot,
-        y=df_alvo["Erro_IA_Pura"],
-        name="Avaliação Cruzada",
-        line=dict(
-            color="black",
-            width=2
-        )
-    ),
-    row=ultima_linha,
-    col=1
-)
-
-fig_ia.add_trace(
-    go.Scatter(
-        x=tempo_plot,
-        y=df_alvo["Limite_MAD_Estado"],
-        name="Threshold Dinâmico",
-        line=dict(
-            color="red",
-            dash="dash",
-            width=2
-        )
-    ),
-    row=ultima_linha,
-    col=1
-)
-
-mask_global = df_alvo["Falha_Confirmada"]
-
-if mask_global.any():
-    indices_global = np.where(mask_global)[0]
-
-    for idx in indices_global:
-        fig_ia.add_vrect(
-            x0=tempo_plot.iloc[idx],
-            x1=tempo_plot.iloc[idx],
-            fillcolor="red",
-            opacity=0.25,
-            line_width=0,
-            row=ultima_linha,
-            col=1
-        )
-
-fig_ia.update_yaxes(
-    title_text="Gravidade (Erro MSE)",
-    row=ultima_linha,
-    col=1
-)
-
-# =====================================================
-# LAYOUT FINAL
-# =====================================================
-altura_total = 250 + (num_paineis * 180)
-
-fig_ia.update_layout(
-    height=altura_total,
-    template="plotly_white",
-    hovermode="x unified",
-    showlegend=True,
-    margin=dict(
-        l=50,
-        r=30,
-        t=60,
-        b=50
-    ),
-    legend=dict(
-        orientation="h",
-        yanchor="top",
-        y=-0.05,
-        xanchor="center",
-        x=0.5
-    )
-)
-
-# eixo independente em cada gráfico
-for i in range(1, num_paineis + 1):
-    fig_ia.update_xaxes(
-        tickformat="%M:%S",
-        row=i,
-        col=1
-    )
-
-fig_ia.update_xaxes(
-    title_text="Tempo Real de Funcionamento (MM:SS)",
-    row=ultima_linha,
-    col=1
-)
-
-fig_ia.update_yaxes(
-    showgrid=True,
-    gridcolor="lightgray"
-)
-
-st.plotly_chart(
-    fig_ia,
-    use_container_width=True
-)
                                         # --- RESPOSTA HUMANIZADA (LLM) ---
                                         if ENABLE_LLM_EXPLANATION and picos_falha > 0:
                                             st.markdown("---")
                                             st.markdown("### 🗣️ Explicação do Engenheiro Mestre (IA)")
                                             with st.spinner("A gerar explicação detalhada..."):
-                                                
-                                                # Bloco extremamente seguro para não travar na Railway
-                                                chave_api = os.environ.get("GEMINI_API_KEY")
-                                                if not chave_api:
-                                                    try:
-                                                        if "GEMINI_API_KEY" in st.secrets:
-                                                            chave_api = st.secrets["GEMINI_API_KEY"]
-                                                    except Exception:
-                                                        chave_api = None
-                                                        
-                                                if chave_api:
-                                                    try:
+                                                try:
+                                                    # Tenta buscar nas Variáveis de Ambiente (Railway)
+                                                    chave_api = os.environ.get("GEMINI_API_KEY")
+                                                    
+                                                    # Se não encontrou no ambiente, tenta no st.secrets (Streamlit Cloud local)
+                                                    if not chave_api and "GEMINI_API_KEY" in st.secrets:
+                                                        chave_api = st.secrets["GEMINI_API_KEY"]
+
+                                                    if chave_api:
                                                         genai.configure(api_key=chave_api)
                                                         llm_model = genai.GenerativeModel('gemini-1.5-flash')
                                                         
@@ -853,10 +580,10 @@ st.plotly_chart(
                                                         """
                                                         resposta_llm = llm_model.generate_content(prompt)
                                                         st.info(resposta_llm.text)
-                                                    except Exception:
-                                                        st.warning("⚠️ O LLM de explicação falhou ao comunicar com o servidor da Google.")
-                                                else:
-                                                    st.warning("⚠️ A chave API do Gemini ainda não foi configurada. Funcionalidade de IA descritiva desativada.")
+                                                    else:
+                                                        st.warning("⚠️ API Key do Gemini não encontrada nas Variáveis de Ambiente do Railway. Funcionalidade de texto humanizado desativada.")
+                                                except Exception as e_llm:
+                                                    st.warning("⚠️ Ocorreu um erro ao comunicar com o servidor da IA linguística. Detalhe técnico apenas na interface nativa.")
 
                                 except Exception as err:
                                     st.error(f"❌ Ocorreu um erro inesperado durante a análise de IA: {err}")
