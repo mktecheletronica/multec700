@@ -606,13 +606,17 @@ elif st.session_state.view == 'dashboard':
                                         row_ia = num_paineis
                                         leg_ia = f"legend{row_ia}"
                                         fig_ia.add_trace(go.Scatter(x=tempo_plot, y=df_alvo['Severidade_Final'], name='Erro Reconstrução', line=dict(color='white', width=1.5), legend=leg_ia), row=row_ia, col=1)
-                                        # Modificação importante: 'line_shape'='hv' transforma a linha diagonal em uma linha reta horizontal em estilo degrau
-                                        fig_ia.add_trace(go.Scatter(x=tempo_plot, y=df_alvo['Limite_MAD_Estado'], name='Threshold (MAD)', line=dict(color='red', width=2, dash='dash'), line_shape='hv', legend=leg_ia), row=row_ia, col=1)
+                                        
+                                        # Transformando o MAD Dinâmico em uma linha Média 100% reta e constante
+                                        mad_medio = df_alvo['Limite_MAD_Estado'].mean()
+                                        linha_mad_constante = np.full(len(tempo_plot), mad_medio)
+                                        
+                                        fig_ia.add_trace(go.Scatter(x=tempo_plot, y=linha_mad_constante, name='Threshold Médio (MAD)', line=dict(color='red', width=2, dash='dash'), legend=leg_ia), row=row_ia, col=1)
 
                                         falha_geral_visual = df_alvo['Falha_Confirmada'].rolling(window=FREQ_HZ, center=True, min_periods=1).max() > 0
                                         if falha_geral_visual.any():
-                                            # Truque para pintar a zona vermelha exata entre o Threshold e a Severidade
-                                            fig_ia.add_trace(go.Scatter(x=tempo_plot, y=np.where(falha_geral_visual, df_alvo['Limite_MAD_Estado'], np.nan), line=dict(width=0), showlegend=False, hoverinfo='skip', line_shape='hv'), row=row_ia, col=1)
+                                            # Truque para pintar a zona vermelha exata entre o Threshold Constante e a Severidade
+                                            fig_ia.add_trace(go.Scatter(x=tempo_plot, y=np.where(falha_geral_visual, linha_mad_constante, np.nan), line=dict(width=0), showlegend=False, hoverinfo='skip'), row=row_ia, col=1)
                                             fig_ia.add_trace(go.Scatter(x=tempo_plot, y=np.where(falha_geral_visual, df_alvo['Severidade_Final'], np.nan), fill='tonexty', mode='none', fillcolor='rgba(255,0,0,0.4)', name='Falha Sistêmica', hoverinfo='skip', legend=leg_ia), row=row_ia, col=1)
 
                                         fig_ia.update_yaxes(title_text="Gravidade", title_font=dict(color="white", size=11, family="Arial Black"), row=row_ia, col=1)
