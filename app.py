@@ -546,7 +546,7 @@ elif st.session_state.view == 'dashboard':
                                         # ==============================================================================
                                         # --- GRÁFICO DA IA EM PLOTLY (IDÊNTICO AO RELATÓRIO NEURO-SIMBÓLICO) ---
                                         # ==============================================================================
-                                        st.markdown("#### Relatório Gráfico Detalhado:)")
+                                        st.markdown("#### Relatório Gráfico Detalhado:")
                                         
                                         # Resgatando o RTM (s) real do LOG para que a linha de tempo não inicie forçadamente em 0
                                         if 'RTM (s)' in df_alvo.columns:
