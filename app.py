@@ -692,15 +692,34 @@ elif st.session_state.view == 'dashboard':
                                                         Seja direto ao ponto, use negritos para realçar as peças e sintomas.
                                                         """
                                                         
-                                                        # Execução direta com o modelo mais atualizado da Google (Sem Fallbacks que escondem o erro real)
-                                                        llm_model = genai.GenerativeModel('gemini-1.5-flash')
+                                                        # --- SISTEMA DE AUTO-DESCOBERTA DE MODELOS ---
+                                                        # Para evitar o Erro 404, perguntamos diretamente ao servidor da Google 
+                                                        # quais modelos essa API Key específica tem permissão para usar.
+                                                        modelos_permitidos = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+                                                        
+                                                        if not modelos_permitidos:
+                                                            raise Exception("A sua API Key conectou com sucesso, mas não tem acesso a nenhum modelo de geração de texto. Crie uma chave nova no Google AI Studio.")
+                                                            
+                                                        # Dá preferência ao 'flash' (mais rápido/inteligente). Se não achar, pega o primeiro que o Google autorizar.
+                                                        modelo_escolhido = modelos_permitidos[0]
+                                                        for nome in modelos_permitidos:
+                                                            if 'flash' in nome.lower():
+                                                                modelo_escolhido = nome
+                                                                break
+                                                                
+                                                        # Remove o prefixo 'models/' que a API da Google às vezes embute no nome
+                                                        modelo_escolhido = modelo_escolhido.replace('models/', '')
+                                                        
+                                                        llm_model = genai.GenerativeModel(modelo_escolhido)
                                                         resposta_llm = llm_model.generate_content(prompt)
+                                                        
+                                                        st.success(f"*(Relatório gerado automaticamente pelo cérebro: {modelo_escolhido})*")
                                                         st.info(resposta_llm.text)
                                                         
                                                     else:
                                                         st.warning("⚠️ **Falta a Chave API no Servidor:** A chave não foi carregada pelo Python. **Solução:** Vá na Railway e faça um **Redeploy** manual da aplicação para injetar as variáveis salvas.")
                                                 except Exception as e_llm:
-                                                    st.error(f"⚠️ **Falha de Comunicação com a IA da Google!**\n\n**O erro relatado foi:** `{e_llm}`\n\n*Nota: Se o erro for 403, 400 ou 'API key not valid', verifique no Google AI Studio se sua chave tem as permissões corretas para o modelo gemini-1.5-flash e se ela não possui restrições.*")
+                                                    st.error(f"⚠️ **Falha de Comunicação com a IA da Google!**\n\n**O erro relatado foi:** `{e_llm}`\n\n*Nota: Se o erro persistir, crie uma chave nova e gratuita no [Google AI Studio](https://aistudio.google.com/app/apikey) e coloque na Railway.*")
 
                                 except Exception as err:
                                     st.error(f"❌ Ocorreu um erro inesperado durante a análise de IA: {err}")
