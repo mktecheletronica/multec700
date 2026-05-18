@@ -678,17 +678,17 @@ elif st.session_state.view == 'dashboard':
                                                         genai.configure(api_key=chave_api)
                                                         
                                                         prompt = f"""
-                                                        Atue como um especialista em injeção eletrónica Multec 700 (Monza, Kadett, Ipanema).
-                                                        O nosso scanner de diagnóstico automático acabou de encontrar uma anomalia no log do carro.
-                                                        
-                                                        O diagnóstico físico detetado foi:
+                                                        Com base na seguinte anomalia detetada no motor:
                                                         Sintoma Identificado: {texto_laudo_llm}
                                                         
-                                                        Com base nisto, escreva uma explicação direta, natural e fácil de entender.
-                                                        Evite jargões excessivamente complicados e não crie personagens.
-                                                        Explique o que o condutor provavelmente está a sentir no comportamento do carro (os sintomas visíveis).
-                                                        Termine com recomendações claras (bullet points) do que deve ser verificado primeiro.
-                                                        Seja direto ao ponto e use negritos para realçar as peças e sintomas.
+                                                        Forneça uma lista de recomendações sobre o que deve ser inspecionado fisicamente no veículo.
+                                                        
+                                                        Regras estritas para a resposta:
+                                                        1. Não assuma nenhuma persona (não diga que é mecânico, engenheiro ou especialista).
+                                                        2. Não explique nem descreva o que o condutor pode estar a sentir no comportamento do carro.
+                                                        3. Inicie o texto exatamente com: "**Recomendações Claras – O que verificar primeiro:**"
+                                                        4. Apresente as verificações em formato de lista (bullet points).
+                                                        5. Seja completamente direto, natural e objetivo, usando negrito para realçar os nomes das peças.
                                                         """
                                                         
                                                         # --- SISTEMA DE AUTO-DESCOBERTA DE MODELOS ---
