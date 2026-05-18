@@ -512,7 +512,7 @@ elif st.session_state.view == 'dashboard':
                                             if len(falhas_fisicas) > 0:
                                                 principal = falhas_fisicas['Diagnostico_Texto'].value_counts().index[0]
                                                 culpados = falhas_fisicas['Culpado_Final'].unique().tolist()
-                                                st.warning(f"**🛠️ Diagnóstico Físico:** {principal}")
+                                                st.warning(f"**Diagnóstico Físico:** {principal}")
                                                 st.warning(f"**Sensores Culpados:** {culpados}")
                                                 texto_laudo_llm = principal
                                                 
