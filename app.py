@@ -664,9 +664,12 @@ elif st.session_state.view == 'dashboard':
                                                     # Tenta buscar nas Variáveis de Ambiente (Railway)
                                                     chave_api = os.environ.get("GEMINI_API_KEY")
                                                     
-                                                    # Se não encontrou no ambiente, tenta no st.secrets (Streamlit Cloud local)
-                                                    if not chave_api and "GEMINI_API_KEY" in st.secrets:
-                                                        chave_api = st.secrets["GEMINI_API_KEY"]
+                                                    # Se não encontrou no ambiente, tenta de forma segura no st.secrets
+                                                    if not chave_api:
+                                                        try:
+                                                            chave_api = st.secrets.get("GEMINI_API_KEY")
+                                                        except Exception:
+                                                            pass # Se não houver arquivo secrets, ignora e segue
 
                                                     if chave_api:
                                                         genai.configure(api_key=chave_api)
@@ -689,9 +692,9 @@ elif st.session_state.view == 'dashboard':
                                                         resposta_llm = llm_model.generate_content(prompt)
                                                         st.info(resposta_llm.text)
                                                     else:
-                                                        st.warning("⚠️ API Key do Gemini não encontrada nas Variáveis de Ambiente do Railway. Funcionalidade de texto humanizado desativada.")
+                                                        st.warning("⚠️ **Falta a Chave API:** A variável `GEMINI_API_KEY` não foi encontrada no painel 'Variables' da Railway. Adicione sua chave lá para ativar os textos.")
                                                 except Exception as e_llm:
-                                                    st.warning("⚠️ Ocorreu um erro ao comunicar com o servidor da IA linguística. Detalhe técnico apenas na interface nativa.")
+                                                    st.error(f"⚠️ **Falha de Comunicação com a IA da Google!**\n\n**O erro relatado foi:** `{e_llm}`\n\n*Se o erro for 403 ou 400, verifique se sua API Key é válida. Se for 429, o limite gratuito de requisições foi atingido.*")
 
                                 except Exception as err:
                                     st.error(f"❌ Ocorreu um erro inesperado durante a análise de IA: {err}")
