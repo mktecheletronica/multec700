@@ -281,7 +281,7 @@ elif st.session_state.view == 'dashboard':
             aba1, aba2, aba3, aba4, aba5 = st.tabs([
                 "📊 Visão Geral", 
                 "📈 Telemetria (Gráficos)", 
-                "⚠️ Diagnóstico (Scanner)", 
+                "⚠️ Diagnóstico", 
                 "📋 Dados Brutos",
                 "📖 Glossário"
             ])
@@ -301,7 +301,7 @@ elif st.session_state.view == 'dashboard':
                 col1, col2, col3, col4 = st.columns(4)
                 col1.metric("RPM Máximo", f"{df['RPM'].max():.0f} RPM")
                 col2.metric("Temp Máxima Água", f"{df['CTS (°C)'].max():.0f} °C")
-                col3.metric("Distância Percorrida", f"{df['Distância_Total (km)'].iloc[-1]:.2f} km")
+                col3.metric("MAP Máximo", f"{df['MAP (kPa)'].mean():.1f} kPa")
                 col4.metric("Velocidade Máxima", f"{df['VSS (km/h)'].max():.0f} km/h")
 
                 st.markdown("---")
@@ -363,29 +363,29 @@ elif st.session_state.view == 'dashboard':
                 st.subheader("Módulo de Diagnóstico e Análise de Falhas")
                 
                 # 1. SISTEMA ORIGINAL DA ECU (Preservado)
-                st.markdown("### Erros Registados na ECU (Clássico)")
+                st.markdown("### Falhas Registradas na ECU")
                 colunas_erros = [c for c in df.columns if c.startswith("Err_")]
                 erros_ocorridos = df[colunas_erros].sum()
                 erros_ativos = erros_ocorridos[erros_ocorridos > 0]
                 
                 if not erros_ativos.empty:
-                    st.error("Atenção! A Centralina (ECU) reportou os seguintes códigos de falha clássicos:")
+                    st.error("Atenção! O módulo (ECU) reportou os seguintes códigos de falhas:")
                     st.dataframe(erros_ativos.rename("Ciclos com Falha"), width="stretch")
                 else:
-                    st.success("Nenhum código de falha clássico registado na memória da ECU.")
+                    st.success("Nenhum código de falha registado na memória da ECU.")
 
                 st.markdown("---")
                 
                 # 2. SISTEMA DE IA NEURO-SIMBÓLICO (Protegido por Kill Switch)
                 if ENABLE_AI_DIAGNOSIS:
-                    st.markdown("### 🤖 Diagnóstico Avançado IA (Neuro-Simbólico)")
-                    st.markdown("*(Fase 1: Mestre Mecânico & Estatística Robusta | Fase 2: Motor DTW)*")
+                    st.markdown("### 🤖 Diagnóstico Avançado IA")
+                    # st.markdown("*(Fase 1: Mestre Mecânico & Estatística Robusta | Fase 2: Motor DTW)*")
                     
                     if not IA_DISPONIVEL:
                         st.warning(f"O módulo de IA não está disponível neste servidor. Erro interno: {ERRO_CARREGAMENTO_IA}")
                     else:
-                        if st.button("🔍 Executar Análise Profunda com IA", type="primary"):
-                            with st.spinner("A inicializar os modelos matemáticos e a avaliar o Log..."):
+                        if st.button("🔍 Executar a Análise com IA", type="primary"):
+                            with st.spinner("Iniciando os modelos matemáticos e a avaliando o Log..."):
                                 
                                 try:
                                     scaler, modelo, pipeline, mestre, biblioteca = carregar_cerebro_ia()
@@ -504,7 +504,7 @@ elif st.session_state.view == 'dashboard':
                                         sensores_para_grafico = []
 
                                         if picos_falha > 0:
-                                            st.error(f"🚨 A IA detetou anomalias reais! ({picos_falha} frames confirmados, ~{picos_falha/FREQ_HZ:.1f} segundos)")
+                                            st.error(f"A IA detetou anomalias reais! ({picos_falha} frames confirmados, ~{picos_falha/FREQ_HZ:.1f} segundos)")
                                             
                                             falhas_fisicas = falhas_confirmadas[falhas_confirmadas['Culpado_Bruto'] != "IA_Genérica"]
                                             falhas_ia = falhas_confirmadas[falhas_confirmadas['Culpado_Bruto'] == "IA_Genérica"]
@@ -512,7 +512,7 @@ elif st.session_state.view == 'dashboard':
                                             if len(falhas_fisicas) > 0:
                                                 principal = falhas_fisicas['Diagnostico_Texto'].value_counts().index[0]
                                                 culpados = falhas_fisicas['Culpado_Final'].unique().tolist()
-                                                st.warning(f"**🛠️ Diagnóstico Físico (Mestre Mecânico):** {principal}")
+                                                st.warning(f"**🛠️ Diagnóstico Físico:** {principal}")
                                                 st.warning(f"**Sensores Culpados:** {culpados}")
                                                 texto_laudo_llm = principal
                                                 
@@ -522,11 +522,11 @@ elif st.session_state.view == 'dashboard':
                                                 df_recorte = df_alvo[df_alvo['Falha_Confirmada']].copy()
                                                 diag_dtw, distancia = biblioteca.classificar_anomalia(df_recorte, culpados)
                                                 assinatura_dtw = diag_dtw
-                                                st.info(f"**🎯 Análise de Curva (DTW):** {diag_dtw}")
+                                                st.info(f"**Análise de Curva (DTW):** {diag_dtw}")
                                             
                                             if len(falhas_ia) > 0:
                                                 principal_ia = falhas_ia['Culpado_Final'].value_counts().index[0]
-                                                st.warning(f"**🧠 Causa Raiz Estatística (IA):** Anomalia centrada em {principal_ia}")
+                                                st.warning(f"**Causa Raiz Estatística (IA):** Anomalia centrada em {principal_ia}")
                                                 
                                                 if len(falhas_fisicas) == 0:
                                                     texto_laudo_llm = f"Desvio matemático grave focado no sensor {principal_ia}"
@@ -536,7 +536,7 @@ elif st.session_state.view == 'dashboard':
                                                     if sensor not in sensores_para_grafico and len(sensores_para_grafico) < 4:
                                                         sensores_para_grafico.append(sensor)
                                         else:
-                                            st.success("✅ A IA aprovou este log. Nenhuma anomalia grave ou desvio estatístico confirmado no motor.")
+                                            st.success("A IA aprovou este log. Nenhuma anomalia grave ou desvio estatístico confirmado no motor.")
                                             texto_laudo_llm = "Nenhum problema encontrado. O motor está a funcionar perfeitamente dentro das tolerâncias físicas e estatísticas."
                                             assinatura_dtw = "Nenhuma"
 
@@ -546,7 +546,7 @@ elif st.session_state.view == 'dashboard':
                                         # ==============================================================================
                                         # --- GRÁFICO DA IA EM PLOTLY (IDÊNTICO AO RELATÓRIO NEURO-SIMBÓLICO) ---
                                         # ==============================================================================
-                                        st.markdown("#### Relatório Neuro-Simbólico (Visão Gráfica Detalhada)")
+                                        st.markdown("#### Relatório Gráfico Detalhado:)")
                                         
                                         # Resgatando o RTM (s) real do LOG para que a linha de tempo não inicie forçadamente em 0
                                         if 'RTM (s)' in df_alvo.columns:
@@ -658,8 +658,8 @@ elif st.session_state.view == 'dashboard':
                                         # --- RESPOSTA HUMANIZADA (LLM) ---
                                         if ENABLE_LLM_EXPLANATION and picos_falha > 0:
                                             st.markdown("---")
-                                            st.markdown("### 🗣️ Explicação do Engenheiro Mestre (IA)")
-                                            with st.spinner("A gerar explicação detalhada..."):
+                                            st.markdown("### Observações finais (IA):")
+                                            with st.spinner("Gerando observação detalhada..."):
                                                 try:
                                                     # 1. Busca agressiva: Tenta GEMINI_API_KEY ou GOOGLE_API_KEY
                                                     chave_api = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or ""
