@@ -13,7 +13,8 @@ import time
 # Altere para False caso note alguma instabilidade no servidor ou queira desligar as funções
 # ==============================================================================
 ENABLE_AI_DIAGNOSIS = True       # Liga/Desliga todo o módulo de Inteligência Artificial
-ENABLE_LLM_EXPLANATION = False    # Liga/Desliga apenas a resposta humanizada (ChatGPT/Gemini)
+ENABLE_LLM_EXPLANATION = True    # Liga/Desliga apenas a resposta humanizada (ChatGPT/Gemini)
+ENABLE_LOCAL_UPLOAD = False      # Liga/Desliga o upload manual de LOGs locais (força o uso da Comunidade)
 
 # ==============================================================================
 # TENTATIVA DE IMPORTAÇÃO DOS MÓDULOS DE IA (Isolado para não quebrar a app)
@@ -43,11 +44,12 @@ if ENABLE_AI_DIAGNOSIS:
 
 
 # --- Configuração Inicial da Página ---
-st.set_page_config(page_title="Visualizador de LOG's Multec 700 DashBoard 3.0", layout="wide", initial_sidebar_state="expanded")
+# "collapsed" garante que a barra lateral velha fica escondida para termos 100% de ecrã limpo
+st.set_page_config(page_title="Visualizador de LOG's Multec 700 DashBoard 3.0", layout="wide", initial_sidebar_state="collapsed")
 
 # --- Inicialização do Estado (Navegação) ---
 if 'view' not in st.session_state:
-    st.session_state.view = 'dashboard'  
+    st.session_state.view = 'comunidade'  # Agora o site abre sempre na base de dados pública por defeito
 if 'log_selecionado' not in st.session_state:
     st.session_state.log_selecionado = None
 
@@ -187,55 +189,47 @@ def carregar_cerebro_ia():
 
 
 # ==========================================
-# BARRA LATERAL (MENU DE NAVEGAÇÃO)
+# CABEÇALHO E MENU DE NAVEGAÇÃO PRINCIPAL
 # ==========================================
-with st.sidebar:
-    st.markdown("<p style='text-align: center; font-size: 15px; font-weight: bold; margin-top: 10px; color: #cccccc;'>Visualizador de LOG's<br>Multec 700 DashBoard 3.0</p>", unsafe_allow_html=True)
-    st.markdown("---")
-    
-    st.header("Navegação")
-    if st.button("📊 Arquivo Local", use_container_width=True):
+st.markdown("<h1 style='text-align: center; color: #f0f2f6; font-weight: 800;'>Visualizador de LOG's Multec 700 DashBoard 3.0</h1>", unsafe_allow_html=True)
+st.markdown("---")
+
+# Ajuste dinâmico das colunas: se Upload oculto, divide o ecrã em 2 em vez de 3
+if ENABLE_LOCAL_UPLOAD:
+    col_nav1, col_nav2, col_nav3 = st.columns(3)
+else:
+    col_nav1, col_nav3 = st.columns(2)
+
+with col_nav1:
+    btn_comunidade = st.button("🌐 Banco de Dados da Comunidade", use_container_width=True, type="primary" if st.session_state.view == 'comunidade' else "secondary")
+    if btn_comunidade and st.session_state.view != 'comunidade':
+        st.session_state.view = 'comunidade'
+        st.rerun()
+
+if ENABLE_LOCAL_UPLOAD:
+    with col_nav2:
+        btn_upload = st.button("📂 Enviar Arquivo Local", use_container_width=True, type="primary" if st.session_state.view == 'upload_local' else "secondary")
+        if btn_upload and st.session_state.view != 'upload_local':
+            st.session_state.view = 'upload_local'
+            st.session_state.log_selecionado = None
+            st.rerun()
+
+with col_nav3:
+    btn_painel = st.button("🔬 Ir para o Painel de Análise", use_container_width=True, type="primary" if st.session_state.view == 'dashboard' else "secondary")
+    if btn_painel and st.session_state.view != 'dashboard':
         st.session_state.view = 'dashboard'
         st.rerun()
 
-    if st.button("🌐 LOG's da Comunidade", use_container_width=True):
-        st.session_state.view = 'comunidade'
-        st.rerun()
-    
-    st.markdown("---")
-    
-    if st.session_state.view == 'dashboard':
-        st.header("📂 Enviar Arquivo Log")
-        arquivo_local = st.file_uploader("Selecione o arquivo .TXT", type=["txt"])
-        
-        if arquivo_local:
-            try:
-                conteudo = arquivo_local.getvalue().decode('utf-8', errors='ignore')
-                linhas = [l for l in conteudo.split('\n') if l.strip()]
-                
-                if not linhas:
-                    st.error("❌ O arquivo selecionado está vazio.")
-                else:
-                    ultima_linha = linhas[-1].split('|')
-                    if len(ultima_linha) < 53:
-                        st.error("❌ Arquivo incompatível! Este log parece pertencer a uma versão antiga ou não é compatível.")
-                    else:
-                        versao_hardware = str(ultima_linha[52]).strip()
-                        if not versao_hardware.startswith('3.') and not versao_hardware.startswith('4.'):
-                            st.error(f"❌ Versão do arquivo não suportada ({versao_hardware}). Necessita de DashBoard versão 3.0+.")
-                        else:
-                            st.session_state.log_selecionado = conteudo
-            except Exception as e:
-                st.error("❌ Erro ao tentar ler a assinatura do arquivo. Arquivo corrompido.")
-
-    st.markdown("<br><br>", unsafe_allow_html=True)
+st.markdown("<br>", unsafe_allow_html=True)
 
 # ==========================================
 # ÁREA PRINCIPAL DO APLICATIVO
 # ==========================================
+
+# 1. TELA DA COMUNIDADE
 if st.session_state.view == 'comunidade':
     st.title("LOG's da Comunidade Multec 700")
-    st.write("Clique no botão à esquerda da linha de registro do Log que deseja visualizar.")
+    st.write("Clique na linha de registro do Log que deseja analisar profundamente no painel.")
     
     df_publicos = carregar_lista_logs_publicos()
     
@@ -261,6 +255,7 @@ if st.session_state.view == 'comunidade':
             height=600
         )
         
+        # Ouve o clique na tabela e transita para o painel de análise automaticamente
         if len(event.selection.rows) > 0:
             idx = event.selection.rows[0]
             id_arq = df_publicos.iloc[idx]['ID_Arquivo']
@@ -271,8 +266,41 @@ if st.session_state.view == 'comunidade':
     else:
         st.warning("Nenhum log público foi encontrado ou a base de dados encontra-se vazia.")
 
+# 2. TELA DE UPLOAD LOCAL (Se o Kill Switch permitir)
+elif st.session_state.view == 'upload_local':
+    st.title("Envio de Arquivo Local")
+    if not ENABLE_LOCAL_UPLOAD:
+        st.error("O sistema de processamento local foi desativado pelo administrador. Volte ao Banco de Dados da Comunidade.")
+    else:
+        arquivo_local = st.file_uploader("Selecione o arquivo .TXT gerado pelo Multec 700", type=["txt"])
+        
+        if arquivo_local:
+            try:
+                conteudo = arquivo_local.getvalue().decode('utf-8', errors='ignore')
+                linhas = [l for l in conteudo.split('\n') if l.strip()]
+                
+                if not linhas:
+                    st.error("❌ O arquivo selecionado está vazio.")
+                else:
+                    ultima_linha = linhas[-1].split('|')
+                    if len(ultima_linha) < 53:
+                        st.error("❌ Arquivo incompatível! Este log parece pertencer a uma versão antiga ou não é compatível.")
+                    else:
+                        versao_hardware = str(ultima_linha[52]).strip()
+                        if not versao_hardware.startswith('3.') and not versao_hardware.startswith('4.'):
+                            st.error(f"❌ Versão do arquivo não suportada ({versao_hardware}). Necessita de DashBoard versão 3.0+.")
+                        else:
+                            st.session_state.log_selecionado = conteudo
+                            st.session_state.view = 'dashboard' # Vai direto para a análise após validar
+                            st.rerun()
+            except Exception as e:
+                st.error("❌ Erro ao tentar ler a assinatura do arquivo. Arquivo corrompido.")
+
+# 3. TELA DE DASHBOARD E PAINEL
 elif st.session_state.view == 'dashboard':
-    if st.session_state.log_selecionado is not None:
+    if st.session_state.log_selecionado is None:
+        st.info("👈 Nenhum log foi carregado para análise. Por favor, navegue até a Comunidade e selecione um registro da tabela.")
+    else:
         df = carregar_dados(st.session_state.log_selecionado, COLUNAS)
         
         if df is not None and not df.empty:
@@ -627,6 +655,7 @@ elif st.session_state.view == 'dashboard':
                                             "template": "plotly_dark",
                                             "margin": dict(l=20, r=150, t=60, b=20), # Margem direita maior para acomodar as legendas lateralmente
                                             "hovermode": "x unified",
+                                            "dragmode": False, # Desabilita a seleção em caixa para zoom
                                         }
 
                                         # Distribui as legendas verticalmente em caixas separadas (simulando a plotagem em subplots individuais)
@@ -647,13 +676,18 @@ elif st.session_state.view == 'dashboard':
                                             )
 
                                         fig_ia.update_layout(**layout_updates)
+                                        
+                                        # Congela todos os eixos Y para impedir scroll ou zoom vertical
+                                        fig_ia.update_yaxes(fixedrange=True)
 
                                         # Ajusta e formata o Eixo X em todos os painéis com o Tempo Real e sem recorte (Amostragem Total)
                                         for r in range(1, num_paineis + 1):
                                             title = "Tempo Real do Log (hh:mm:ss)" if r == num_paineis else None
-                                            fig_ia.update_xaxes(title_text=title, tickformat="%H:%M:%S", hoverformat="%H:%M:%S.%L", row=r, col=1)
+                                            # fixedrange=True bloqueia o zoom horizontal e remove as opções de zoom na barra
+                                            fig_ia.update_xaxes(title_text=title, tickformat="%H:%M:%S", hoverformat="%H:%M:%S.%L", fixedrange=True, row=r, col=1)
 
-                                        st.plotly_chart(fig_ia, use_container_width=True)
+                                        # Config impede o zoom pelo 'scroll' do mouse
+                                        st.plotly_chart(fig_ia, use_container_width=True, config={'scrollZoom': False})
 
                                         # --- RESPOSTA HUMANIZADA (LLM) ---
                                         if ENABLE_LLM_EXPLANATION and picos_falha > 0:
@@ -678,17 +712,16 @@ elif st.session_state.view == 'dashboard':
                                                         genai.configure(api_key=chave_api)
                                                         
                                                         prompt = f"""
-                                                        Com base na seguinte anomalia detetada no motor:
-                                                        Sintoma Identificado: {texto_laudo_llm}
+                                                        Sintoma no motor (Multec 700): {texto_laudo_llm}
                                                         
-                                                        Forneça uma lista de recomendações sobre o que deve ser inspecionado fisicamente no veículo.
+                                                        Aja como um sistema automatizado de diagnóstico mecânico. 
+                                                        A sua ÚNICA função é retornar os passos de verificação.
                                                         
-                                                        Regras estritas para a resposta:
-                                                        1. Não assuma nenhuma persona (não diga que é mecânico, engenheiro ou especialista).
-                                                        2. Não explique nem descreva o que o condutor pode estar a sentir no comportamento do carro.
-                                                        3. Inicie o texto exatamente com: "**Recomendações Claras – O que verificar primeiro:**"
-                                                        4. Apresente as verificações em formato de lista (bullet points).
-                                                        5. Seja completamente direto, natural e objetivo, usando negrito para realçar os nomes das peças.
+                                                        REGRAS OBRIGATÓRIAS (Falhar não é opção):
+                                                        1. PROIBIDO usar saudações, introduções ou conclusões (ex: "Olá", "Com base...", "Aqui estão").
+                                                        2. PROIBIDO descrever o que o condutor está a sentir.
+                                                        3. A sua resposta DEVE começar EXATAMENTE com a linha: "**Recomendações Claras – O que verificar primeiro:**"
+                                                        4. Liste logo abaixo as peças em formato de bullet points, sendo muito objetivo e usando negrito nas peças.
                                                         """
                                                         
                                                         # --- SISTEMA DE AUTO-DESCOBERTA DE MODELOS ---
@@ -789,6 +822,3 @@ elif st.session_state.view == 'dashboard':
                     * **Erro 51:** Falha/Defeito no Memcal (EPROM).
                     * **Erro 54:** Falha no circuito de ajuste de CO2.
                     """)
-
-    else:
-        st.info("👈 Utilize o menu lateral esquerdo para carregar um Arquivo de log local ou explore a opção \"LOG's da Comunidade\". Acesse através do Computador para uma melhor visualização.")
