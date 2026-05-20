@@ -45,11 +45,9 @@ if ENABLE_AI_DIAGNOSIS:
 
 # --- Configuração Inicial da Página ---
 # "collapsed" garante que a barra lateral velha fica escondida para termos 100% de ecrã limpo
-st.set_page_config(page_title="Visualizador de LOG's Multec 700 DashBoard 3.0", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="Multec 700 DashBoard 3.0", layout="wide", initial_sidebar_state="collapsed")
 
 # --- Inicialização do Estado (Navegação) ---
-if 'view' not in st.session_state:
-    st.session_state.view = 'comunidade'  # Agora o site abre sempre na base de dados pública por defeito
 if 'log_selecionado' not in st.session_state:
     st.session_state.log_selecionado = None
 
@@ -189,47 +187,23 @@ def carregar_cerebro_ia():
 
 
 # ==========================================
-# CABEÇALHO E MENU DE NAVEGAÇÃO PRINCIPAL
+# CABEÇALHO E MENU DE NAVEGAÇÃO PRINCIPAL (SISTEMA DE ABAS)
 # ==========================================
-st.markdown("<h1 style='text-align: center; color: #f0f2f6; font-weight: 800;'>Visualizador de LOG's Multec 700 DashBoard 3.0</h1>", unsafe_allow_html=True)
-st.markdown("---")
+st.title("Multec 700 DashBoard 3.0")
 
-# Ajuste dinâmico das colunas: se Upload oculto, divide o ecrã em 2 em vez de 3
+# Oculta a aba de upload local inteiramente se o Kill Switch estiver False
 if ENABLE_LOCAL_UPLOAD:
-    col_nav1, col_nav2, col_nav3 = st.columns(3)
+    aba_comunidade, aba_upload, aba_painel = st.tabs(["🌐 Banco de Dados da Comunidade", "📂 Enviar Arquivo Local", "🔬 Painel de Análise"])
 else:
-    col_nav1, col_nav3 = st.columns(2)
+    aba_comunidade, aba_painel = st.tabs(["🌐 Banco de Dados da Comunidade", "🔬 Painel de Análise"])
+    aba_upload = None
 
-with col_nav1:
-    btn_comunidade = st.button("🌐 Banco de Dados da Comunidade", use_container_width=True, type="primary" if st.session_state.view == 'comunidade' else "secondary")
-    if btn_comunidade and st.session_state.view != 'comunidade':
-        st.session_state.view = 'comunidade'
-        st.rerun()
-
-if ENABLE_LOCAL_UPLOAD:
-    with col_nav2:
-        btn_upload = st.button("📂 Enviar Arquivo Local", use_container_width=True, type="primary" if st.session_state.view == 'upload_local' else "secondary")
-        if btn_upload and st.session_state.view != 'upload_local':
-            st.session_state.view = 'upload_local'
-            st.session_state.log_selecionado = None
-            st.rerun()
-
-with col_nav3:
-    btn_painel = st.button("🔬 Ir para o Painel de Análise", use_container_width=True, type="primary" if st.session_state.view == 'dashboard' else "secondary")
-    if btn_painel and st.session_state.view != 'dashboard':
-        st.session_state.view = 'dashboard'
-        st.rerun()
-
-st.markdown("<br>", unsafe_allow_html=True)
 
 # ==========================================
-# ÁREA PRINCIPAL DO APLICATIVO
+# 1. ABA DA COMUNIDADE
 # ==========================================
-
-# 1. TELA DA COMUNIDADE
-if st.session_state.view == 'comunidade':
-    st.title("LOG's da Comunidade Multec 700")
-    st.write("Clique na linha de registro do Log que deseja analisar profundamente no painel.")
+with aba_comunidade:
+    st.write("Clique na linha de registro do Log que deseja carregar para análise.")
     
     df_publicos = carregar_lista_logs_publicos()
     
@@ -255,23 +229,25 @@ if st.session_state.view == 'comunidade':
             height=600
         )
         
-        # Ouve o clique na tabela e transita para o painel de análise automaticamente
+        # Guarda o log selecionado e instrui o utilizador a navegar para o painel
         if len(event.selection.rows) > 0:
             idx = event.selection.rows[0]
             id_arq = df_publicos.iloc[idx]['ID_Arquivo']
-            st.session_state.log_selecionado = f"https://drive.google.com/uc?export=download&id={id_arq}"
-            st.session_state.view = 'dashboard'
-            st.rerun()
+            novo_log = f"https://drive.google.com/uc?export=download&id={id_arq}"
+            
+            if st.session_state.log_selecionado != novo_log:
+                st.session_state.log_selecionado = novo_log
+            
+            st.success("✅ Log carregado na memória com sucesso! Clique na aba **'🔬 Painel de Análise'** logo acima para visualizar os gráficos.")
             
     else:
         st.warning("Nenhum log público foi encontrado ou a base de dados encontra-se vazia.")
 
-# 2. TELA DE UPLOAD LOCAL (Se o Kill Switch permitir)
-elif st.session_state.view == 'upload_local':
-    st.title("Envio de Arquivo Local")
-    if not ENABLE_LOCAL_UPLOAD:
-        st.error("O sistema de processamento local foi desativado pelo administrador. Volte ao Banco de Dados da Comunidade.")
-    else:
+# ==========================================
+# 2. ABA DE UPLOAD LOCAL (Se ativada)
+# ==========================================
+if ENABLE_LOCAL_UPLOAD and aba_upload is not None:
+    with aba_upload:
         arquivo_local = st.file_uploader("Selecione o arquivo .TXT gerado pelo Multec 700", type=["txt"])
         
         if arquivo_local:
@@ -290,16 +266,18 @@ elif st.session_state.view == 'upload_local':
                         if not versao_hardware.startswith('3.') and not versao_hardware.startswith('4.'):
                             st.error(f"❌ Versão do arquivo não suportada ({versao_hardware}). Necessita de DashBoard versão 3.0+.")
                         else:
-                            st.session_state.log_selecionado = conteudo
-                            st.session_state.view = 'dashboard' # Vai direto para a análise após validar
-                            st.rerun()
+                            if st.session_state.log_selecionado != conteudo:
+                                st.session_state.log_selecionado = conteudo
+                            st.success("✅ Arquivo processado e carregado na memória! Clique na aba **'🔬 Painel de Análise'** logo acima para visualizar os gráficos.")
             except Exception as e:
                 st.error("❌ Erro ao tentar ler a assinatura do arquivo. Arquivo corrompido.")
 
-# 3. TELA DE DASHBOARD E PAINEL
-elif st.session_state.view == 'dashboard':
+# ==========================================
+# 3. ABA DO PAINEL DE ANÁLISE
+# ==========================================
+with aba_painel:
     if st.session_state.log_selecionado is None:
-        st.info("👈 Nenhum log foi carregado para análise. Por favor, navegue até a Comunidade e selecione um registro da tabela.")
+        st.info("👈 Nenhum log foi carregado para análise. Por favor, navegue até a aba **'Banco de Dados da Comunidade'** e selecione um registro da tabela.")
     else:
         df = carregar_dados(st.session_state.log_selecionado, COLUNAS)
         
@@ -407,7 +385,6 @@ elif st.session_state.view == 'dashboard':
                 # 2. SISTEMA DE IA NEURO-SIMBÓLICO (Protegido por Kill Switch)
                 if ENABLE_AI_DIAGNOSIS:
                     st.markdown("### 🤖 Diagnóstico Avançado IA")
-                    # st.markdown("*(Fase 1: Mestre Mecânico & Estatística Robusta | Fase 2: Motor DTW)*")
                     
                     if not IA_DISPONIVEL:
                         st.warning(f"O módulo de IA não está disponível neste servidor. Erro interno: {ERRO_CARREGAMENTO_IA}")
@@ -422,7 +399,6 @@ elif st.session_state.view == 'dashboard':
                                         st.error("Falha ao carregar o Cérebro Neural. Operação cancelada.")
                                     else:
                                         # 2.1 Reconstrução Dinâmica do DataFrame Cru para o Pipeline da IA (6Hz)
-                                        # Lemos diretamente do log selecionado cru para garantir formatação limpa
                                         if isinstance(st.session_state.log_selecionado, str) and st.session_state.log_selecionado.startswith("http"):
                                             resposta = requests.get(st.session_state.log_selecionado)
                                             texto_cru = resposta.text
@@ -432,7 +408,7 @@ elif st.session_state.view == 'dashboard':
                                         linhas_validas = [l for l in texto_cru.split('\n') if len(l.split('|')) == len(COLUNAS_SCANNER)]
                                         df_cru_ia = pd.read_csv(io.StringIO('\n'.join(linhas_validas)), sep="|", header=None, names=COLUNAS_SCANNER)
                                         
-                                        # Passa pelo funil da Fase 1 (100% igual ao scanner_especialista.py)
+                                        # Passa pelo funil da Fase 1
                                         df_alvo = pipeline.processar_log(df_cru_ia)
                                         
                                         # Features Temporais
@@ -446,7 +422,7 @@ elif st.session_state.view == 'dashboard':
                                         df_alvo['CTS_C_Diff_Abs'] = df_alvo['CTS (°C)'].diff().fillna(0).abs()
                                         df_alvo['TPS_V_Diff_Abs'] = df_alvo['TPS (V)'].diff().fillna(0).abs()
                                         
-                                        # Limites Globais (Mock dinâmico baseado no dataset saudável guardado)
+                                        # Limites Globais
                                         limites_por_estado = {'Idle': 3.5, 'Cruise': 4.0, 'Decel': 4.5, 'WOT': 5.0, 'Warmup': 6.0}
                                         limite_global_mad = 4.0
 
