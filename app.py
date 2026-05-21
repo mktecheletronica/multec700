@@ -207,10 +207,11 @@ def carregar_cerebro_ia():
 # ==============================================================================
 # INTERFACE PRINCIPAL (SISTEMA DE ROTEAMENTO DINÂMICO SPA)
 # ==============================================================================
-st.markdown("<h3 style='text-align: left; color: #4F4F4F; margin-bottom: 20px;'>Visualizador de LOG's Multec 700 DashBoard 3.0</h3>", unsafe_allow_html=True)
 
 # Fluxo 1: Nenhum Log Selecionado (Mostra apenas o Banco de Dados)
 if st.session_state.log_selecionado is None:
+    
+    st.markdown("<h3 style='text-align: left; color: #4F4F4F; margin-bottom: 20px;'>Visualizador de LOG's Multec 700 DashBoard 3.0</h3>", unsafe_allow_html=True)
     
     st.subheader("🌐 Banco de Dados da Comunidade")
     st.write("Clique na linha de registro do Log que deseja carregar para iniciar a análise.")
@@ -281,20 +282,25 @@ if st.session_state.log_selecionado is None:
 
 # Fluxo 2: Log Selecionado (Abre APENAS o Painel de Análise)
 else:
+    # --- NOVIDADE: Título e Botão na mesma linha ---
+    col_title, col_btn = st.columns([5, 1])
+    with col_title:
+        st.markdown("<h3 style='text-align: left; color: #4F4F4F; margin-top: 0px; margin-bottom: 20px;'>Visualizador de LOG's Multec 700 DashBoard 3.0</h3>", unsafe_allow_html=True)
+    with col_btn:
+        st.button("⬅️ Voltar à Comunidade", on_click=limpar_selecao, use_container_width=True)
+        
     resultado_carregamento = carregar_dados(st.session_state.log_selecionado, COLUNAS, st.session_state.nome_log_selecionado)
     
     if resultado_carregamento is not None and resultado_carregamento[0] is not None and not resultado_carregamento[0].empty:
         df, nome_final = resultado_carregamento
         versao_dash = df["Versão_HW"].iloc[-1]
 
-        # Inclusão da aba Voltar no grupo de navegação
-        aba1, aba2, aba3, aba4, aba5, aba6 = st.tabs([
+        aba1, aba2, aba3, aba4, aba5 = st.tabs([
             "📊 Visão Geral", 
             "📈 Telemetria (Gráficos)", 
             "⚠️ Diagnóstico", 
             "📋 Dados Brutos",
-            "📖 Glossário",
-            "⬅️ Voltar ao Banco de Dados"
+            "📖 Glossário"
         ])
 
         # ABA 1: VISÃO GERAL
@@ -371,7 +377,7 @@ else:
 
         # ABA 3: DIAGNÓSTICO E INTELIGÊNCIA ARTIFICIAL
         with aba3:
-            st.subheader("Módulo de Diagnóstico e Análise de Falhas:")
+            st.subheader("Módulo de Diagnóstico e Análise de Falhas")
             
             # 1. SISTEMA ORIGINAL DA ECU
             st.markdown("### Falhas Registradas na ECU")
@@ -802,9 +808,3 @@ else:
                 | **Flag_Motor_ON**| Motor em funcionamento. |
                 | **Flag_Em_Movimento**| Velocidade > 0. |
                 """)
-
-        # ABA 6: VOLTAR AO BANCO DE DADOS
-        with aba6:
-            st.subheader("⬅️ Sair e Voltar")
-            st.info("Tem a certeza que deseja encerrar a análise deste log e regressar à lista da comunidade?")
-            st.button("✅ Sim, voltar para o Banco de Dados", on_click=limpar_selecao, type="primary")
