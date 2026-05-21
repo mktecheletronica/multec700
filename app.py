@@ -7,6 +7,7 @@ import requests
 import io
 import numpy as np
 import time
+import re
 
 # Suprimir o FutureWarning do pacote antigo google.generativeai nos logs da Railway
 import warnings
@@ -18,7 +19,7 @@ warnings.filterwarnings("ignore", category=FutureWarning, module="google.generat
 # ==============================================================================
 ENABLE_AI_DIAGNOSIS = True       # Liga/Desliga todo o módulo de Inteligência Artificial
 ENABLE_LLM_EXPLANATION = True    # Liga/Desliga apenas a resposta humanizada (ChatGPT/Gemini)
-ENABLE_LOCAL_UPLOAD = True      # Liga/Desliga o upload manual de LOGs locais (força o uso da Comunidade)
+ENABLE_LOCAL_UPLOAD = True       # Liga/Desliga o upload manual de LOGs locais (Aparece no fundo da página inicial)
 
 # ==============================================================================
 # TENTATIVA DE IMPORTAÇÃO DOS MÓDULOS DE IA E IA GENERATIVA
@@ -129,13 +130,21 @@ def carregar_lista_logs_publicos():
         return pd.DataFrame()
 
 @st.cache_data
-def carregar_dados(arquivo_ou_url_ou_conteudo, colunas):
+def carregar_dados(arquivo_ou_url_ou_conteudo, colunas, nome_sugerido=""):
+    """Retorna o DataFrame e o nome real do ficheiro detetado"""
+    nome_original = nome_sugerido
     try:
         if isinstance(arquivo_ou_url_ou_conteudo, str):
             if arquivo_ou_url_ou_conteudo.startswith("http"):
                 resposta = requests.get(arquivo_ou_url_ou_conteudo)
                 resposta.raise_for_status()
                 texto_cru = resposta.text
+                
+                # Tenta capturar o nome real do ficheiro extraindo do cabeçalho do Google Drive
+                cd = resposta.headers.get('content-disposition', '')
+                match = re.findall(r'filename="?([^";]+)"?', cd)
+                if match:
+                    nome_original = match[0]
             else:
                 texto_cru = arquivo_ou_url_ou_conteudo
         else:
@@ -154,7 +163,7 @@ def carregar_dados(arquivo_ou_url_ou_conteudo, colunas):
             if len(campos) == qtd_esperada:
                 linhas_validas.append(linha)
                 
-        if not linhas_validas: return None
+        if not linhas_validas: return None, nome_original
 
         conteudo_limpo = io.StringIO('\n'.join(linhas_validas))
         df = pd.read_csv(conteudo_limpo, sep="|", header=None, names=colunas)
@@ -175,10 +184,10 @@ def carregar_dados(arquivo_ou_url_ou_conteudo, colunas):
         df["RTM_Continuo"] = df["RTM (s)"] + (cumcounts / counts)
         df["Tempo_Relogio"] = pd.to_datetime(df["RTM_Continuo"], unit='s')
         
-        return df
+        return df, nome_original
     except Exception as e:
         st.error(f"Erro ao processar o arquivo: {e}")
-        return None
+        return None, nome_original
 
 @st.cache_resource
 def carregar_cerebro_ia():
@@ -198,7 +207,7 @@ def carregar_cerebro_ia():
 # ==============================================================================
 # INTERFACE PRINCIPAL (SISTEMA DE ROTEAMENTO DINÂMICO SPA)
 # ==============================================================================
-st.title("Visualizador de LOG's Multec 700 DashBoard 3.0")
+st.markdown("<h2 style='text-align: center; color: #f0f2f6; margin-bottom: 30px;'>Visualizador de LOG's Multec 700 DashBoard 3.0</h2>", unsafe_allow_html=True)
 
 # Fluxo 1: Nenhum Log Selecionado (Mostra apenas o Banco de Dados)
 if st.session_state.log_selecionado is None:
@@ -235,13 +244,8 @@ if st.session_state.log_selecionado is None:
             idx = event.selection.rows[0]
             linha_selecionada = df_publicos.iloc[idx]
             
-            # Gera um nome de arquivo bonito baseado nos dados da grelha
-            veiculo_limpo = str(linha_selecionada['Veículo']).replace(" ", "_")
-            data_limpa = str(linha_selecionada['Data/Hora']).replace("/", "-").replace(":", "h")
-            nome_dinamico = f"Log_{veiculo_limpo}_{data_limpa}.txt"
-            
             st.session_state.log_selecionado = f"https://drive.google.com/uc?export=download&id={linha_selecionada['ID_Arquivo']}"
-            st.session_state.nome_log_selecionado = nome_dinamico
+            st.session_state.nome_log_selecionado = "Arquivo da Comunidade" # Fallback, a função carregar_dados vai sobrescrever com o nome real
             st.rerun() # Transita para o Painel automaticamente
             
     else:
@@ -250,7 +254,7 @@ if st.session_state.log_selecionado is None:
     # Se o administrador ativar, o Uploader local aparece abaixo da grelha
     if ENABLE_LOCAL_UPLOAD:
         st.markdown("---")
-        st.subheader("📂 Envio de Arquivo Local")
+        st.subheader("📂 Abrir Arquivo Local")
         arquivo_local = st.file_uploader("Selecione o arquivo .TXT gerado pelo Multec 700", type=["txt"])
         
         if arquivo_local:
@@ -281,9 +285,10 @@ else:
     st.button("⬅️ Voltar para o Banco de Dados", on_click=limpar_selecao)
     st.markdown("<br>", unsafe_allow_html=True)
     
-    df = carregar_dados(st.session_state.log_selecionado, COLUNAS)
+    resultado_carregamento = carregar_dados(st.session_state.log_selecionado, COLUNAS, st.session_state.nome_log_selecionado)
     
-    if df is not None and not df.empty:
+    if resultado_carregamento is not None and resultado_carregamento[0] is not None and not resultado_carregamento[0].empty:
+        df, nome_final = resultado_carregamento
         versao_dash = df["Versão_HW"].iloc[-1]
 
         aba1, aba2, aba3, aba4, aba5 = st.tabs([
@@ -296,7 +301,7 @@ else:
 
         # ABA 1: VISÃO GERAL
         with aba1:
-            st.success(f"Log carregado: **{st.session_state.nome_log_selecionado}** (Dashboard v{versao_dash} | {len(df)} registos)")
+            st.success(f"Log carregado: **{nome_final}** (Dashboard v{versao_dash} | {len(df)} registos)")
             try:
                 memcal_id = int(df["Memcal ID"].iloc[-1])
                 nome_modulo = MEMCAL_MAP.get(memcal_id, f"MODULO GM - ID MEMCAL: {memcal_id}")
