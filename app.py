@@ -19,7 +19,7 @@ warnings.filterwarnings("ignore", category=FutureWarning, module="google.generat
 # ==============================================================================
 ENABLE_AI_DIAGNOSIS = True       # Liga/Desliga todo o módulo de Inteligência Artificial
 ENABLE_LLM_EXPLANATION = True    # Liga/Desliga apenas a resposta humanizada (ChatGPT/Gemini)
-ENABLE_LOCAL_UPLOAD = True       # Liga/Desliga o upload manual de LOGs locais (Aparece no fundo da página inicial)
+ENABLE_LOCAL_UPLOAD = False       # Liga/Desliga o upload manual de LOGs locais (Aparece no fundo da página inicial)
 
 # ==============================================================================
 # TENTATIVA DE IMPORTAÇÃO DOS MÓDULOS DE IA E IA GENERATIVA
@@ -668,8 +668,12 @@ else:
                                                     Todos eles são equipados com a injeção eletrônica Multec 700.
                                                     Combustível: {combustivel}.
                                                     Lembrar que esse modelo de injeção é 1 bico injetor, não tem sonda lambda (ajuste de CO2 é fixo, por potenciômetro), 
-                                                    Usa distribuidor com bobina impulsora, módulo HEI, bobina de saída única, rotor do distribuidor, tampa do distribuidor e sensor de velocidade de 8, 10, 13 e 16 pulsos.
+                                                    Usa distribuidor com bobina impulsora, módulo HEI, bobina de saída única, rotor do distribuidor, tampa do distribuidor, Atuador de marcha lenta do tipo motor de passo (IAC), sensor de pressão do tipo MAP e sensor de velocidade de 8, 10, 13 e 16 pulsos.
                                                     Ventoinha é controlada pela ECU, através de um relé.
+                                                    Alguns modelos possui válvula EGR, mas não são todos os modelos. (não chamamos de válvula PCV).
+                                                    Não possui Avanço centrífugo. O avanço é controlado eletronicamente pela ECU.
+                                                    Não possui sensor IAC (temperatura do ar)
+                                                    Os Modelos movidos à álcool possuem resistência de aquecimento no coletor de adimissão e injetor de gasolina para partida a frio.
                                                     
                                                     REGRAS OBRIGATÓRIAS (Falhar não é opção):
                                                     1. PROIBIDO usar saudações, introduções ou conclusões (ex: "Olá", "Com base...", "Aqui estão").
