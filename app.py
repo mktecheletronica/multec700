@@ -780,14 +780,14 @@ else:
                 | Flag / Sinal | Condição Ativa |
                 | :--- | :--- |
                 | **Flag_RAQ** | Aquecimento Coletor. |
-                | **Flag_ACC** | Embraiagem A/C. |
+                | **Flag_ACC** | Embreagem A/C. |
                 | **Flag_BCE** | Controle de avanço. |
                 | **Flag_CAC** | Ciclagem do A/C. |
                 | **Flag_Fan1/2**| Eletroventilador ON. |
                 | **Flag_RPF** | Partida a Frio. |
-                | **Flag_ShiftLight**| Luz de mudança. |
+                | **Flag_ShiftLight**| Luz de mudança Marcha. |
                 | **Flag_ISV** | Solicitação Ventoinha. |
-                | **Flag_Falha_Ativa**| Tem erro gravado. |
+                | **Flag_Falha_Ativa**| Falha Ativa. |
                 | **Flag_TPS_IDLE**| Borboleta fechada. |
                 | **Flag_Clear_Flood**| Desafogamento (100%). |
                 | **Flag_Park_Drive**| Câmbio em P/D. |
