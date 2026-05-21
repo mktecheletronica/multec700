@@ -19,7 +19,7 @@ warnings.filterwarnings("ignore", category=FutureWarning, module="google.generat
 # ==============================================================================
 ENABLE_AI_DIAGNOSIS = True       # Liga/Desliga todo o módulo de Inteligência Artificial
 ENABLE_LLM_EXPLANATION = True    # Liga/Desliga apenas a resposta humanizada (ChatGPT/Gemini)
-ENABLE_LOCAL_UPLOAD = False       # Liga/Desliga o upload manual de LOGs locais (Aparece no fundo da página inicial)
+ENABLE_LOCAL_UPLOAD = False      # Liga/Desliga o upload manual de LOGs locais (Aparece no fundo da página inicial)
 
 # ==============================================================================
 # TENTATIVA DE IMPORTAÇÃO DOS MÓDULOS DE IA E IA GENERATIVA
@@ -207,7 +207,7 @@ def carregar_cerebro_ia():
 # ==============================================================================
 # INTERFACE PRINCIPAL (SISTEMA DE ROTEAMENTO DINÂMICO SPA)
 # ==============================================================================
-st.markdown("<h3 style='text-align: left; color: #4F4F4F; margin-bottom: 30px;'>Visualizador de LOG's Multec 700 DashBoard 3.0</h3>", unsafe_allow_html=True)
+st.markdown("<h3 style='text-align: left; color: #4F4F4F; margin-bottom: 20px;'>Visualizador de LOG's Multec 700 DashBoard 3.0</h3>", unsafe_allow_html=True)
 
 # Fluxo 1: Nenhum Log Selecionado (Mostra apenas o Banco de Dados)
 if st.session_state.log_selecionado is None:
@@ -281,22 +281,20 @@ if st.session_state.log_selecionado is None:
 
 # Fluxo 2: Log Selecionado (Abre APENAS o Painel de Análise)
 else:
-    # Botão para fechar a análise e voltar para a tabela principal
-    st.button("⬅️ Voltar para o Banco de Dados", on_click=limpar_selecao)
-    st.markdown("<br>", unsafe_allow_html=True)
-    
     resultado_carregamento = carregar_dados(st.session_state.log_selecionado, COLUNAS, st.session_state.nome_log_selecionado)
     
     if resultado_carregamento is not None and resultado_carregamento[0] is not None and not resultado_carregamento[0].empty:
         df, nome_final = resultado_carregamento
         versao_dash = df["Versão_HW"].iloc[-1]
 
-        aba1, aba2, aba3, aba4, aba5 = st.tabs([
+        # Inclusão da aba Voltar no grupo de navegação
+        aba1, aba2, aba3, aba4, aba5, aba6 = st.tabs([
             "📊 Visão Geral", 
             "📈 Telemetria (Gráficos)", 
             "⚠️ Diagnóstico", 
             "📋 Dados Brutos",
-            "📖 Glossário"
+            "📖 Glossário",
+            "⬅️ Voltar ao Banco de Dados"
         ])
 
         # ABA 1: VISÃO GERAL
@@ -655,8 +653,14 @@ else:
 
                                             try:
                                                 chave_api = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or ""
-                                                # ... (resto do seu código de verificação de chave_api)
-                                                
+                                                if not chave_api:
+                                                    try:
+                                                        chave_api = st.secrets.get("GEMINI_API_KEY", "")
+                                                    except Exception:
+                                                        pass
+
+                                                chave_api = chave_api.strip(' "\'\n\r')
+
                                                 if chave_api:
                                                     prompt = f"""
                                                     Sintoma no motor (Multec 700): {texto_laudo_llm}
@@ -726,74 +730,81 @@ else:
             st.subheader("Tabela de Dados Brutos")
             st.dataframe(df.drop(columns=["Tempo_Relogio", "RTM_Continuo"]), width="stretch", height=500)
 
-        # ABA 5: GLOSSÁRIO
+        # ABA 5: GLOSSÁRIO (Estruturado em 3 Colunas)
         with aba5:
             st.subheader("📖 Glossário de Parâmetros Multec 700")
             st.markdown("Consulta rápida do significado de cada abreviação e flag gerada pela ECU.")
             
-            col_g1, col_g2 = st.columns(2)
+            col_g1, col_g2, col_g3 = st.columns(3)
             
             with col_g1:
-                st.markdown("#### 🌡️ Sensores Analógicos e Medidas")
+                st.markdown("#### 🌡️ Sensores e Medidas")
                 st.markdown("""
                 | Parâmetro | Significado |
                 | :--- | :--- |
-                | **RTM (s)** | *Run Time Motor* - Tempo de funcionamento do motor. |
-                | **RPM** | *Revolutions Per Minute* - Rotação atual do motor. |
-                | **CTS (°C / V)** | *Coolant Temperature Sensor* - Temperatura da água. |
-                | **VSS (km/h)** | *Vehicle Speed Sensor* - Velocidade atual do veículo. |
-                | **TPS (% / V)** | *Throttle Position Sensor* - Posição da borboleta. |
-                | **MAP (kPa / V)** | *Manifold Absolute Pressure* - Pressão absoluta do coletor. |
-                | **Pressão Atm** | Pressão atmosférica lida antes da partida. |
-                | **Bateria (V)** | Tensão da bateria lida pela ECU. |
-                | **CO2 (V)** | Tensão do potenciómetro de ajuste de mistura de CO. |
-                """)
-
-                st.markdown("#### ⚙️ Parâmetros Calculados / Atuadores")
-                st.markdown("""
-                | Parâmetro | Significado |
-                | :--- | :--- |
-                | **Avanço (°)** | Ponto de ignição calculado pela ECU. |
-                | **BPW (ms)** | *Base Pulse Width* - Tempo de injeção em milissegundos. |
-                | **AFR** | *Air Fuel Ratio* - Relação Ar/Combustível comandada. |
-                | **IAC (Passos)** | *Idle Air Control* - Posição do motor de passo. |
-                | **Marcha Lenta** | Rotação alvo a manter. |
-                | **TBRP** | *Time Between Reference Pulses* - Pulsos da ignição. |
-                | **Memcal ID** | Identificação gravada na EPROM da ECU. |
+                | **RTM (s)** | *Run Time Motor* - Tempo de funcionamento. |
+                | **RPM** | *Revolutions Per Minute* - Rotação. |
+                | **CTS (°C/V)**| *Coolant Temp* - Temperatura da água. |
+                | **VSS (km/h)**| *Vehicle Speed* - Velocidade do veículo. |
+                | **TPS (%/V)** | *Throttle Position* - Posição da borboleta. |
+                | **MAP (kPa/V)**| *Manifold Pressure* - Pressão do coletor. |
+                | **Pressão Atm**| Pressão atmosférica inicial. |
+                | **Bateria (V)**| Tensão lida pela ECU. |
+                | **CO2 (V)** | Potenciómetro de ajuste de mistura. |
                 """)
 
             with col_g2:
-                st.markdown("#### 🚩 Flags (Sinais Digitais e Status)")
+                st.markdown("#### ⚙️ Atuadores e Cálculos")
                 st.markdown("""
-                | Flag / Sinal | Significado |
+                | Parâmetro | Significado |
                 | :--- | :--- |
-                | **Flag_RAQ** | Aquecimento do Coletor ativado. |
-                | **Flag_ACC** | Embraiagem do Ar Condicionado acoplada. |
-                | **Flag_BCE** | Controle de desvio (avanço) ativado. |
-                | **Flag_CAC** | Ciclagem do Ar Condicionado. |
-                | **Flag_Fan1 / Fan2** | Eletroventilador (Ventoinha) ligado. |
-                | **Flag_RPF** | Relé de Partida a Frio acionado. |
-                | **Flag_ShiftLight** | Luz indicadora de mudança ativada. |
-                | **Flag_ISV** | Interruptor de Solicitação da Ventoinha. |
-                | **Flag_Falha_Ativa** | Indica se há algum código de falha ativo. |
-                | **Flag_TPS_IDLE** | Borboleta totalmente fechada. |
-                | **Flag_Clear_Flood** | Modo de desafogamento do motor (Pedal 100%). |
-                | **Flag_Park_Drive** | Status do seletor de marchas automático. |
-                | **Flag_CutOff** | Corte de injeção ativado. |
-                | **Flag_Motor_ON** | Confirmação do motor em funcionamento. |
-                | **Flag_Em_Movimento** | Confirmação de que velocidade > 0. |
+                | **Avanço (°)** | Ponto de ignição calculado. |
+                | **BPW (ms)** | *Base Pulse Width* - Tempo de injeção. |
+                | **AFR** | *Air Fuel Ratio* - Relação Ar/Combustível. |
+                | **IAC (Passos)**| *Idle Air Control* - Motor de passo. |
+                | **Marcha Lenta**| Rotação alvo a manter. |
+                | **TBRP** | Tempo entre pulsos da ignição. |
+                | **Memcal ID** | ID gravado na EPROM. |
                 """)
                 
-                st.markdown("#### ⚠️ Códigos de Erro (DTCs)")
+                st.markdown("#### ⚠️ Códigos de Erro")
                 st.markdown("""
-                | Erro | Significado |
+                | Erro | Falha Reportada |
                 | :--- | :--- |
-                | **Erro 14/15** | Falha no Sensor de Temperatura (CTS) - Alta/Baixa. |
-                | **Erro 21/22** | Falha no Sensor da Borboleta (TPS) - Alta/Baixa. |
-                | **Erro 24** | Falha no Sensor de Velocidade (VSS). |
-                | **Erro 33/34** | Falha no Sensor de Pressão (MAP) - Alta/Baixa. |
-                | **Erro 35** | Falha no controle de Marcha Lenta (IAC). |
-                | **Erro 42** | Falha no circuito do Módulo de Ignição (HEI). |
-                | **Erro 51** | Falha/Defeito no Memcal (EPROM). |
-                | **Erro 54** | Falha no circuito de ajuste de CO2. |
+                | **14/15** | Sensor de Temperatura (CTS). |
+                | **21/22** | Sensor da Borboleta (TPS). |
+                | **24** | Sensor de Velocidade (VSS). |
+                | **33/34** | Sensor de Pressão (MAP). |
+                | **35** | Motor de Passo (IAC). |
+                | **42** | Módulo de Ignição (HEI). |
+                | **51** | Defeito no Memcal (EPROM). |
+                | **54** | Circuito de ajuste de CO2. |
                 """)
+
+            with col_g3:
+                st.markdown("#### 🚩 Flags (Sinais e Status)")
+                st.markdown("""
+                | Flag / Sinal | Condição / Status |
+                | :--- | :--- |
+                | **Flag_RAQ** | Aquecimento do Coletor ativado. |
+                | **Flag_ACC** | Embraiagem do A/C acoplada. |
+                | **Flag_BCE** | Controle de desvio (avanço). |
+                | **Flag_CAC** | Ciclagem do Ar Condicionado. |
+                | **Flag_Fan1/2**| Eletroventilador ligado. |
+                | **Flag_RPF** | Partida a Frio acionada. |
+                | **Flag_ShiftLight**| Luz indicadora de mudança. |
+                | **Flag_ISV** | Solicitação da Ventoinha. |
+                | **Flag_Falha_Ativa**| Código de falha presente. |
+                | **Flag_TPS_IDLE**| Borboleta totalmente fechada. |
+                | **Flag_Clear_Flood**| Desafogamento (Pedal 100%). |
+                | **Flag_Park_Drive**| Seletor automático em P ou D. |
+                | **Flag_CutOff**| Corte de injeção ativado. |
+                | **Flag_Motor_ON**| Motor em funcionamento. |
+                | **Flag_Em_Movimento**| Velocidade > 0. |
+                """)
+
+        # ABA 6: VOLTAR AO BANCO DE DADOS
+        with aba6:
+            st.subheader("⬅️ Sair e Voltar")
+            st.info("Tem a certeza que deseja encerrar a análise deste log e regressar à lista da comunidade?")
+            st.button("✅ Sim, voltar para o Banco de Dados", on_click=limpar_selecao, type="primary")
