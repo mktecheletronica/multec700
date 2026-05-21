@@ -5,3 +5,4 @@ requests
 tensorflow-cpu
 scikit-learn
 google-generativeai>=0.5.2
+google-genai
