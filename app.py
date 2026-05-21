@@ -8,35 +8,44 @@ import io
 import numpy as np
 import time
 
+# Suprimir o FutureWarning do pacote antigo google.generativeai nos logs da Railway
+import warnings
+warnings.filterwarnings("ignore", category=FutureWarning, module="google.generativeai")
+
 # ==============================================================================
 # 🔴 KILL SWITCHES (CONTROLOS DE SEGURANÇA) 🔴
 # Altere para False caso note alguma instabilidade no servidor ou queira desligar as funções
 # ==============================================================================
 ENABLE_AI_DIAGNOSIS = True       # Liga/Desliga todo o módulo de Inteligência Artificial
 ENABLE_LLM_EXPLANATION = True    # Liga/Desliga apenas a resposta humanizada (ChatGPT/Gemini)
-ENABLE_LOCAL_UPLOAD = False      # Liga/Desliga o upload manual de LOGs locais (força o uso da Comunidade)
+ENABLE_LOCAL_UPLOAD = True      # Liga/Desliga o upload manual de LOGs locais (força o uso da Comunidade)
 
 # ==============================================================================
-# TENTATIVA DE IMPORTAÇÃO DOS MÓDULOS DE IA (Isolado para não quebrar a app)
+# TENTATIVA DE IMPORTAÇÃO DOS MÓDULOS DE IA E IA GENERATIVA
 # ==============================================================================
 IA_DISPONIVEL = False
+NOVO_SDK_GENAI = False
+
 if ENABLE_AI_DIAGNOSIS:
     try:
         import joblib
-        import warnings
         import os
         os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
         from tensorflow.keras.models import load_model
         
-        # Módulos locais do projeto (certifique-se que estes ficheiros estão na mesma pasta)
         from data_pipeline import MultecDataPipeline
         from config_ia import COLUNAS_IA, SENSORES_CAUSA_RAIZ
         from scanner_especialista import MecanicoEspecialista_Multec700, calcular_mad_threshold, COLUNAS as COLUNAS_SCANNER
         from biblioteca_dtw import BibliotecaDefeitosDTW
         
-        # Importação do LLM (Gemini)
-        import google.generativeai as genai
-        
+        # Teste de compatibilidade para a nova e velha biblioteca do Google Gemini
+        try:
+            from google import genai
+            NOVO_SDK_GENAI = True
+        except ImportError:
+            import google.generativeai as genai_old
+            NOVO_SDK_GENAI = False
+            
         IA_DISPONIVEL = True
     except Exception as e:
         IA_DISPONIVEL = False
@@ -44,16 +53,16 @@ if ENABLE_AI_DIAGNOSIS:
 
 
 # --- Configuração Inicial da Página ---
-# "collapsed" garante que a barra lateral velha fica escondida para termos 100% de ecrã limpo
 st.set_page_config(page_title="Visualizador de LOG's Multec 700 DashBoard 3.0", layout="wide", initial_sidebar_state="collapsed")
 
-# --- Inicialização do Estado (Navegação) ---
+# --- Inicialização do Estado (Navegação e Memória de Nome do Arquivo) ---
 if 'log_selecionado' not in st.session_state:
     st.session_state.log_selecionado = None
+    st.session_state.nome_log_selecionado = ""
 
-# Callback para o botão de voltar
 def limpar_selecao():
     st.session_state.log_selecionado = None
+    st.session_state.nome_log_selecionado = ""
 
 # --- Mapeamento das 53 Colunas ---
 COLUNAS = [
@@ -171,9 +180,6 @@ def carregar_dados(arquivo_ou_url_ou_conteudo, colunas):
         st.error(f"Erro ao processar o arquivo: {e}")
         return None
 
-# ==============================================================================
-# CACHE DOS MODELOS DE IA (Carrega apenas 1 vez na memória do servidor)
-# ==============================================================================
 @st.cache_resource
 def carregar_cerebro_ia():
     if not IA_DISPONIVEL: return None, None, None, None, None
@@ -190,11 +196,11 @@ def carregar_cerebro_ia():
 
 
 # ==============================================================================
-# INTERFACE PRINCIPAL (SISTEMA DE ROTEAMENTO DINÂMICO)
+# INTERFACE PRINCIPAL (SISTEMA DE ROTEAMENTO DINÂMICO SPA)
 # ==============================================================================
 st.title("Visualizador de LOG's Multec 700 DashBoard 3.0")
 
-# Fluxo 1: Nenhum Log Selecionado (Mostra o Banco de Dados)
+# Fluxo 1: Nenhum Log Selecionado (Mostra apenas o Banco de Dados)
 if st.session_state.log_selecionado is None:
     
     st.subheader("🌐 Banco de Dados da Comunidade")
@@ -218,7 +224,7 @@ if st.session_state.log_selecionado is None:
                 "F_MarchaLenta": None, "F_Apagando": None, "F_Consumo": None, "ID_Arquivo": None
             },
             hide_index=True,
-            use_container_width=True, 
+            width="stretch", 
             on_select="rerun",
             selection_mode="single-row",
             height=600
@@ -227,11 +233,16 @@ if st.session_state.log_selecionado is None:
         # Ação Automática ao Clicar na Tabela
         if len(event.selection.rows) > 0:
             idx = event.selection.rows[0]
-            id_arq = df_publicos.iloc[idx]['ID_Arquivo']
-            novo_log = f"https://drive.google.com/uc?export=download&id={id_arq}"
+            linha_selecionada = df_publicos.iloc[idx]
             
-            st.session_state.log_selecionado = novo_log
-            st.rerun() # Atualiza a página e transita para o Painel automaticamente
+            # Gera um nome de arquivo bonito baseado nos dados da grelha
+            veiculo_limpo = str(linha_selecionada['Veículo']).replace(" ", "_")
+            data_limpa = str(linha_selecionada['Data/Hora']).replace("/", "-").replace(":", "h")
+            nome_dinamico = f"Log_{veiculo_limpo}_{data_limpa}.txt"
+            
+            st.session_state.log_selecionado = f"https://drive.google.com/uc?export=download&id={linha_selecionada['ID_Arquivo']}"
+            st.session_state.nome_log_selecionado = nome_dinamico
+            st.rerun() # Transita para o Painel automaticamente
             
     else:
         st.warning("Nenhum log público foi encontrado ou a base de dados encontra-se vazia.")
@@ -259,13 +270,14 @@ if st.session_state.log_selecionado is None:
                             st.error(f"❌ Versão do arquivo não suportada ({versao_hardware}). Necessita de DashBoard versão 3.0+.")
                         else:
                             st.session_state.log_selecionado = conteudo
+                            st.session_state.nome_log_selecionado = arquivo_local.name
                             st.rerun()
             except Exception as e:
                 st.error("❌ Erro ao tentar ler a assinatura do arquivo. Arquivo corrompido.")
 
-# Fluxo 2: Log Selecionado (Abre o Painel de Análise diretamente)
+# Fluxo 2: Log Selecionado (Abre APENAS o Painel de Análise)
 else:
-    # Botão para fechar a análise e voltar para a tabela
+    # Botão para fechar a análise e voltar para a tabela principal
     st.button("⬅️ Voltar para o Banco de Dados", on_click=limpar_selecao)
     st.markdown("<br>", unsafe_allow_html=True)
     
@@ -284,7 +296,7 @@ else:
 
         # ABA 1: VISÃO GERAL
         with aba1:
-            st.success(f"Log carregado automaticamente! (Dashboard v{versao_dash} | {len(df)} registos)")
+            st.success(f"Log carregado: **{st.session_state.nome_log_selecionado}** (Dashboard v{versao_dash} | {len(df)} registos)")
             try:
                 memcal_id = int(df["Memcal ID"].iloc[-1])
                 nome_modulo = MEMCAL_MAP.get(memcal_id, f"MODULO GM - ID MEMCAL: {memcal_id}")
@@ -388,7 +400,7 @@ else:
                                 if modelo is None:
                                     st.error("Falha ao carregar o Cérebro Neural. Operação cancelada.")
                                 else:
-                                    # 2.1 Reconstrução Dinâmica do DataFrame Cru para o Pipeline da IA (6Hz)
+                                    # 2.1 Reconstrução Dinâmica do DataFrame Cru
                                     if isinstance(st.session_state.log_selecionado, str) and st.session_state.log_selecionado.startswith("http"):
                                         resposta = requests.get(st.session_state.log_selecionado)
                                         texto_cru = resposta.text
@@ -400,7 +412,6 @@ else:
                                     
                                     df_alvo = pipeline.processar_log(df_cru_ia)
                                     
-                                    # Features Temporais
                                     df_alvo['CO2_Diff'] = df_alvo['CO2 (V)'].diff().fillna(0)
                                     df_alvo['TPS_Diff_Abs'] = df_alvo['TPS (%)'].diff().fillna(0).abs()
                                     df_alvo['RPM_Diff_Abs'] = df_alvo['RPM'].diff().fillna(0).abs()
@@ -411,11 +422,9 @@ else:
                                     df_alvo['CTS_C_Diff_Abs'] = df_alvo['CTS (°C)'].diff().fillna(0).abs()
                                     df_alvo['TPS_V_Diff_Abs'] = df_alvo['TPS (V)'].diff().fillna(0).abs()
                                     
-                                    # Limites Globais
                                     limites_por_estado = {'Idle': 3.5, 'Cruise': 4.0, 'Decel': 4.5, 'WOT': 5.0, 'Warmup': 6.0}
                                     limite_global_mad = 4.0
 
-                                    # Cálculo de Erros
                                     dados_normalizados = scaler.transform(df_alvo[COLUNAS_IA])
                                     dados_reconstruidos = modelo.predict(dados_normalizados, verbose=0)
                                     
@@ -425,7 +434,6 @@ else:
                                     df_alvo['Erro_IA_Pura'] = np.mean(erros_individuais_brutos, axis=1)
                                     df_alvo['Limite_MAD_Estado'] = df_alvo['Estado_Motor'].map(limites_por_estado).fillna(limite_global_mad)
 
-                                    # Mestre Mecânico
                                     diagnosticos, sensores_culpados_brutos, grau_severidade = [], [], []
                                     for index, linha in df_alvo.iterrows():
                                         erro_ia = linha['Erro_IA_Pura']
@@ -450,7 +458,6 @@ else:
                                     df_alvo['Culpado_Bruto'] = sensores_culpados_brutos
                                     df_alvo['Culpado_Final'] = df_alvo['Culpado_Bruto']
                                     
-                                    # Crivo de Sanidade
                                     mask_ia = df_alvo['Culpado_Bruto'] == 'IA_Genérica'
                                     if mask_ia.any():
                                         max_sensors = df_erros_individuais.loc[mask_ia, SENSORES_CAUSA_RAIZ].idxmax(axis=1)
@@ -477,7 +484,6 @@ else:
                                         df_alvo.loc[invalid_ia_mask, 'Diagnostico_Texto'] = "Normal"
                                         df_alvo.loc[invalid_ia_mask, 'Severidade_Final'] = 0
 
-                                    # Confirmação Temporal e Filtro de Bordas
                                     FREQ_HZ = 6
                                     frames_persistencia = max(2, int(FREQ_HZ * 0.4)) 
                                     anomalia_instantanea = df_alvo['Severidade_Final'] > df_alvo['Limite_MAD_Estado']
@@ -488,7 +494,6 @@ else:
                                     df_alvo.iloc[:n_start, df_alvo.columns.get_loc('Falha_Confirmada')] = False
                                     df_alvo.iloc[-n_end:, df_alvo.columns.get_loc('Falha_Confirmada')] = False
 
-                                    # --- LAUDO FINAL DA FASE 1 & FASE 2 ---
                                     falhas_confirmadas = df_alvo[df_alvo['Falha_Confirmada']]
                                     picos_falha = len(falhas_confirmadas)
                                     
@@ -511,7 +516,6 @@ else:
                                             
                                             sensores_para_grafico.extend(culpados)
                                             
-                                            # ORQUESTRAÇÃO DTW (FASE 2)
                                             df_recorte = df_alvo[df_alvo['Falha_Confirmada']].copy()
                                             diag_dtw, distancia = biblioteca.classificar_anomalia(df_recorte, culpados)
                                             assinatura_dtw = diag_dtw
@@ -533,12 +537,8 @@ else:
                                         texto_laudo_llm = "Nenhum problema encontrado. O motor está a funcionar perfeitamente dentro das tolerâncias físicas e estatísticas."
                                         assinatura_dtw = "Nenhuma"
 
-                                    # Remover duplicados e limitar a 4 sensores mantendo a ordem de inserção
                                     sensores_para_grafico = list(dict.fromkeys(sensores_para_grafico))[:4]
 
-                                    # ==============================================================================
-                                    # --- GRÁFICO DA IA EM PLOTLY ---
-                                    # ==============================================================================
                                     st.markdown("#### Relatório Gráfico Detalhado:")
                                     
                                     if 'RTM (s)' in df_alvo.columns:
@@ -560,7 +560,6 @@ else:
                                         specs=[[{"secondary_y": True}]] + [[{"secondary_y": False}]] * (num_paineis - 1)
                                     )
                                     
-                                    # --- PAINEL 1 ---
                                     leg_1 = "legend"
                                     fig_ia.add_trace(go.Scatter(x=tempo_plot, y=df_alvo['RPM'], name='RPM', line=dict(color='#1f77b4', width=2), legend=leg_1), row=1, col=1, secondary_y=False)
                                     fig_ia.add_trace(go.Scatter(x=tempo_plot, y=df_alvo['TPS (%)'], name='TPS (%)', line=dict(color='#2ca02c', width=1.5), opacity=0.7, legend=leg_1), row=1, col=1, secondary_y=True)
@@ -578,7 +577,6 @@ else:
                                     fig_ia.update_yaxes(title_text="RPM", title_font=dict(color="#1f77b4", size=11, family="Arial Black"), range=[0, 6800], row=1, col=1, secondary_y=False)
                                     fig_ia.update_yaxes(title_text="TPS (%)", title_font=dict(color="#2ca02c", size=11, family="Arial Black"), range=[0, 100], row=1, col=1, secondary_y=True)
 
-                                    # --- PAINEIS SENSORES ---
                                     for i, sensor in enumerate(sensores_para_grafico):
                                         row = i + 2
                                         leg_s = f"legend{row}"
@@ -593,7 +591,6 @@ else:
                                         
                                         fig_ia.update_yaxes(title_text=sensor, title_font=dict(color="darkorange", size=11, family="Arial Black"), row=row, col=1)
 
-                                    # --- PAINEL GRAVIDADE ---
                                     row_ia = num_paineis
                                     leg_ia = f"legend{row_ia}"
                                     fig_ia.add_trace(go.Scatter(x=tempo_plot, y=df_alvo['Severidade_Final'], name='Erro Reconstrução', line=dict(color='white', width=1.5), legend=leg_ia), row=row_ia, col=1)
@@ -610,13 +607,12 @@ else:
 
                                     fig_ia.update_yaxes(title_text="Gravidade", title_font=dict(color="white", size=11, family="Arial Black"), row=row_ia, col=1)
 
-                                    # --- Configurações Finais de Layout (SEM ZOOM) ---
                                     layout_updates = {
                                         "height": 250 + (220 * (num_paineis - 1)), 
                                         "template": "plotly_dark",
                                         "margin": dict(l=20, r=150, t=60, b=20), 
                                         "hovermode": "x unified",
-                                        "dragmode": False, # Desabilita a seleção em caixa para zoom
+                                        "dragmode": False, 
                                     }
 
                                     for r in range(1, num_paineis + 1):
@@ -629,13 +625,13 @@ else:
                                         )
 
                                     fig_ia.update_layout(**layout_updates)
-                                    fig_ia.update_yaxes(fixedrange=True) # Impede scroll/zoom vertical
+                                    fig_ia.update_yaxes(fixedrange=True) 
 
                                     for r in range(1, num_paineis + 1):
                                         title = "Tempo Real do Log (hh:mm:ss)" if r == num_paineis else None
                                         fig_ia.update_xaxes(title_text=title, tickformat="%H:%M:%S", hoverformat="%H:%M:%S.%L", fixedrange=True, row=r, col=1)
 
-                                    st.plotly_chart(fig_ia, use_container_width=True, config={'scrollZoom': False})
+                                    st.plotly_chart(fig_ia, width="stretch", config={'scrollZoom': False})
 
                                     # --- RESPOSTA HUMANIZADA (LLM) ---
                                     if ENABLE_LLM_EXPLANATION and picos_falha > 0:
@@ -653,8 +649,6 @@ else:
                                                 chave_api = chave_api.strip(' "\'\n\r')
 
                                                 if chave_api:
-                                                    genai.configure(api_key=chave_api)
-                                                    
                                                     prompt = f"""
                                                     Sintoma no motor (Multec 700): {texto_laudo_llm}
                                                     
@@ -668,24 +662,36 @@ else:
                                                     4. Liste logo abaixo as peças em formato de bullet points, sendo muito objetivo e usando negrito nas peças.
                                                     """
                                                     
-                                                    modelos_permitidos = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-                                                    
-                                                    if not modelos_permitidos:
-                                                        raise Exception("A sua API Key conectou com sucesso, mas não tem acesso a nenhum modelo de geração de texto. Crie uma chave nova no Google AI Studio.")
+                                                    if NOVO_SDK_GENAI:
+                                                        # Usa a nova biblioteca (google-genai) de forma estática
+                                                        client = genai.Client(api_key=chave_api)
+                                                        resposta_llm = client.models.generate_content(
+                                                            model='gemini-2.5-flash',
+                                                            contents=prompt
+                                                        )
+                                                        st.info(resposta_llm.text)
+                                                        st.caption("⚠️ *Nota: A Inteligência Artificial pode cometer erros de interpretação. Confirme sempre o diagnóstico com um profissional qualificado.*")
+                                                    else:
+                                                        # Usa a biblioteca antiga (google-generativeai) pesquisando modelos permitidos
+                                                        genai_old.configure(api_key=chave_api)
+                                                        modelos_permitidos = [m.name for m in genai_old.list_models() if 'generateContent' in m.supported_generation_methods]
                                                         
-                                                    modelo_escolhido = modelos_permitidos[0]
-                                                    for nome in modelos_permitidos:
-                                                        if 'flash' in nome.lower():
-                                                            modelo_escolhido = nome
-                                                            break
+                                                        if not modelos_permitidos:
+                                                            raise Exception("A sua API Key conectou com sucesso, mas não tem acesso a nenhum modelo de geração de texto. Crie uma chave nova no Google AI Studio.")
                                                             
-                                                    modelo_escolhido = modelo_escolhido.replace('models/', '')
-                                                    
-                                                    llm_model = genai.GenerativeModel(modelo_escolhido)
-                                                    resposta_llm = llm_model.generate_content(prompt)
-                                                    
-                                                    st.info(resposta_llm.text)
-                                                    st.caption("⚠️ *Nota: A Inteligência Artificial pode cometer erros de interpretação. Confirme sempre o diagnóstico com um profissional qualificado.*")
+                                                        modelo_escolhido = modelos_permitidos[0]
+                                                        for nome in modelos_permitidos:
+                                                            if 'flash' in nome.lower():
+                                                                modelo_escolhido = nome
+                                                                break
+                                                                
+                                                        modelo_escolhido = modelo_escolhido.replace('models/', '')
+                                                        
+                                                        llm_model = genai_old.GenerativeModel(modelo_escolhido)
+                                                        resposta_llm = llm_model.generate_content(prompt)
+                                                        
+                                                        st.info(resposta_llm.text)
+                                                        st.caption("⚠️ *Nota: A Inteligência Artificial pode cometer erros de interpretação. Confirme sempre o diagnóstico com um profissional qualificado.*")
                                                     
                                                 else:
                                                     st.warning("⚠️ **Falta a Chave API no Servidor:** A chave não foi carregada pelo Python. **Solução:** Vá na Railway e faça um **Redeploy** manual da aplicação para injetar as variáveis salvas.")
@@ -710,56 +716,64 @@ else:
             with col_g1:
                 st.markdown("#### 🌡️ Sensores Analógicos e Medidas")
                 st.markdown("""
-                * **RTM (s):** *Run Time Motor* - Tempo de funcionamento do motor.
-                * **RPM:** *Revolutions Per Minute* - Rotação atual do motor.
-                * **CTS (°C / V):** *Coolant Temperature Sensor* - Temperatura da água.
-                * **VSS (km/h):** *Vehicle Speed Sensor* - Velocidade atual do veículo.
-                * **TPS (% / V):** *Throttle Position Sensor* - Posição da borboleta.
-                * **MAP (kPa / V):** *Manifold Absolute Pressure* - Pressão absoluta do coletor.
-                * **Pressão Atm (kPa / V):** Pressão atmosférica lida antes da partida.
-                * **Bateria (V):** Tensão da bateria lida pela ECU.
-                * **CO2 (V):** Tensão do potenciómetro de ajuste de mistura de CO.
+                | Parâmetro | Significado |
+                | :--- | :--- |
+                | **RTM (s)** | *Run Time Motor* - Tempo de funcionamento do motor. |
+                | **RPM** | *Revolutions Per Minute* - Rotação atual do motor. |
+                | **CTS (°C / V)** | *Coolant Temperature Sensor* - Temperatura da água. |
+                | **VSS (km/h)** | *Vehicle Speed Sensor* - Velocidade atual do veículo. |
+                | **TPS (% / V)** | *Throttle Position Sensor* - Posição da borboleta. |
+                | **MAP (kPa / V)** | *Manifold Absolute Pressure* - Pressão absoluta do coletor. |
+                | **Pressão Atm** | Pressão atmosférica lida antes da partida. |
+                | **Bateria (V)** | Tensão da bateria lida pela ECU. |
+                | **CO2 (V)** | Tensão do potenciómetro de ajuste de mistura de CO. |
                 """)
 
                 st.markdown("#### ⚙️ Parâmetros Calculados / Atuadores")
                 st.markdown("""
-                * **Avanço (°):** Ponto de ignição calculado pela ECU.
-                * **BPW (ms):** *Base Pulse Width* - Tempo de injeção em milissegundos.
-                * **AFR Partida / Atual:** *Air Fuel Ratio* - Relação Ar/Combustível comandada.
-                * **IAC (Passos):** *Idle Air Control* - Posição do motor de passo.
-                * **Marcha Lenta Ideal:** Rotação alvo a manter.
-                * **TBRP:** *Time Between Reference Pulses* - Tempo entre os pulsos da ignição.
-                * **Memcal ID:** Identificação gravada na EPROM da ECU.
+                | Parâmetro | Significado |
+                | :--- | :--- |
+                | **Avanço (°)** | Ponto de ignição calculado pela ECU. |
+                | **BPW (ms)** | *Base Pulse Width* - Tempo de injeção em milissegundos. |
+                | **AFR** | *Air Fuel Ratio* - Relação Ar/Combustível comandada. |
+                | **IAC (Passos)** | *Idle Air Control* - Posição do motor de passo. |
+                | **Marcha Lenta** | Rotação alvo a manter. |
+                | **TBRP** | *Time Between Reference Pulses* - Pulsos da ignição. |
+                | **Memcal ID** | Identificação gravada na EPROM da ECU. |
                 """)
 
             with col_g2:
                 st.markdown("#### 🚩 Flags (Sinais Digitais e Status)")
                 st.markdown("""
-                * **Flag_RAQ:** Aquecimento do Coletor ativado.
-                * **Flag_ACC:** Embraiagem do Ar Condicionado acoplada.
-                * **Flag_BCE:** Controle de desvio (avanço) ativado.
-                * **Flag_CAC:** Ciclagem do Ar Condicionado.
-                * **Flag_Fan1 / Fan2:** Eletroventilador (Ventoinha) ligado.
-                * **Flag_RPF:** Relé de Partida a Frio acionado.
-                * **Flag_ShiftLight:** Luz indicadora de mudança ativada.
-                * **Flag_ISV:** Interruptor de Solicitação da Ventoinha.
-                * **Flag_Falha_Ativa:** Indica se há algum código de falha ativo.
-                * **Flag_TPS_IDLE:** Borboleta totalmente fechada.
-                * **Flag_Clear_Flood:** Modo de desafogamento do motor (Pedal 100%).
-                * **Flag_Park_Drive:** Status do seletor de marchas automático.
-                * **Flag_CutOff:** Corte de injeção ativado.
-                * **Flag_Motor_ON:** Confirmação do motor em funcionamento.
-                * **Flag_Em_Movimento:** Confirmação de que velocidade > 0.
+                | Flag / Sinal | Significado |
+                | :--- | :--- |
+                | **Flag_RAQ** | Aquecimento do Coletor ativado. |
+                | **Flag_ACC** | Embraiagem do Ar Condicionado acoplada. |
+                | **Flag_BCE** | Controle de desvio (avanço) ativado. |
+                | **Flag_CAC** | Ciclagem do Ar Condicionado. |
+                | **Flag_Fan1 / Fan2** | Eletroventilador (Ventoinha) ligado. |
+                | **Flag_RPF** | Relé de Partida a Frio acionado. |
+                | **Flag_ShiftLight** | Luz indicadora de mudança ativada. |
+                | **Flag_ISV** | Interruptor de Solicitação da Ventoinha. |
+                | **Flag_Falha_Ativa** | Indica se há algum código de falha ativo. |
+                | **Flag_TPS_IDLE** | Borboleta totalmente fechada. |
+                | **Flag_Clear_Flood** | Modo de desafogamento do motor (Pedal 100%). |
+                | **Flag_Park_Drive** | Status do seletor de marchas automático. |
+                | **Flag_CutOff** | Corte de injeção ativado. |
+                | **Flag_Motor_ON** | Confirmação do motor em funcionamento. |
+                | **Flag_Em_Movimento** | Confirmação de que velocidade > 0. |
                 """)
                 
                 st.markdown("#### ⚠️ Códigos de Erro (DTCs)")
                 st.markdown("""
-                * **Erro 14/15:** Falha no Sensor de Temperatura (CTS) - Alta/Baixa.
-                * **Erro 21/22:** Falha no Sensor da Borboleta (TPS) - Alta/Baixa.
-                * **Erro 24:** Falha no Sensor de Velocidade (VSS).
-                * **Erro 33/34:** Falha no Sensor de Pressão (MAP) - Alta/Baixa.
-                * **Erro 35:** Falha no controle de Marcha Lenta (IAC).
-                * **Erro 42:** Falha no circuito do Módulo de Ignição (HEI).
-                * **Erro 51:** Falha/Defeito no Memcal (EPROM).
-                * **Erro 54:** Falha no circuito de ajuste de CO2.
+                | Erro | Significado |
+                | :--- | :--- |
+                | **Erro 14/15** | Falha no Sensor de Temperatura (CTS) - Alta/Baixa. |
+                | **Erro 21/22** | Falha no Sensor da Borboleta (TPS) - Alta/Baixa. |
+                | **Erro 24** | Falha no Sensor de Velocidade (VSS). |
+                | **Erro 33/34** | Falha no Sensor de Pressão (MAP) - Alta/Baixa. |
+                | **Erro 35** | Falha no controle de Marcha Lenta (IAC). |
+                | **Erro 42** | Falha no circuito do Módulo de Ignição (HEI). |
+                | **Erro 51** | Falha/Defeito no Memcal (EPROM). |
+                | **Erro 54** | Falha no circuito de ajuste de CO2. |
                 """)
