@@ -207,7 +207,7 @@ def carregar_cerebro_ia():
 # ==============================================================================
 # INTERFACE PRINCIPAL (SISTEMA DE ROTEAMENTO DINÂMICO SPA)
 # ==============================================================================
-st.markdown("<h2 style='text-align: center; color: #f0f2f6; margin-bottom: 30px;'>Visualizador de LOG's Multec 700 DashBoard 3.0</h2>", unsafe_allow_html=True)
+st.markdown("<h3 style='text-align: left; color: #4F4F4F; margin-bottom: 30px;'>Visualizador de LOG's Multec 700 DashBoard 3.0</h3>", unsafe_allow_html=True)
 
 # Fluxo 1: Nenhum Log Selecionado (Mostra apenas o Banco de Dados)
 if st.session_state.log_selecionado is None:
@@ -227,7 +227,7 @@ if st.session_state.log_selecionado is None:
                 "Usuário": st.column_config.TextColumn("Enviado por", width=150),
                 "Veículo": st.column_config.TextColumn("Modelo", width=250),
                 "Comentário": st.column_config.TextColumn("Observações do Utilizador", width=550),
-                "Obs_Moderador": st.column_config.TextColumn("Observações do Moderador", width=750),
+                "Obs_Moderador": st.column_config.TextColumn("Observações do Moderador", width=350),
                 "ID": None, "Status_Geral": None, "Tipo_Trajeto": None,
                 "F_Engasgo": None, "F_Partida": None, "F_Potencia": None,
                 "F_MarchaLenta": None, "F_Apagando": None, "F_Consumo": None, "ID_Arquivo": None
@@ -255,7 +255,7 @@ if st.session_state.log_selecionado is None:
     if ENABLE_LOCAL_UPLOAD:
         st.markdown("---")
         st.subheader("📂 Abrir Arquivo Local")
-        arquivo_local = st.file_uploader("Selecione o arquivo .TXT gerado pelo Multec 700", type=["txt"])
+        arquivo_local = st.file_uploader("Selecione o arquivo .TXT gerado pelo Aplicativo Multec 700 DashBoard", type=["txt"])
         
         if arquivo_local:
             try:
@@ -271,7 +271,7 @@ if st.session_state.log_selecionado is None:
                     else:
                         versao_hardware = str(ultima_linha[52]).strip()
                         if not versao_hardware.startswith('3.') and not versao_hardware.startswith('4.'):
-                            st.error(f"❌ Versão do arquivo não suportada ({versao_hardware}). Necessita de DashBoard versão 3.0+.")
+                            st.error(f"❌ Versão do arquivo não suportada ({versao_hardware}). Necessita do DashBoard versão 3.0.")
                         else:
                             st.session_state.log_selecionado = conteudo
                             st.session_state.nome_log_selecionado = arquivo_local.name
@@ -373,7 +373,7 @@ else:
 
         # ABA 3: DIAGNÓSTICO E INTELIGÊNCIA ARTIFICIAL
         with aba3:
-            st.subheader("Módulo de Diagnóstico e Análise de Falhas")
+            st.subheader("Módulo de Diagnóstico e Análise de Falhas:")
             
             # 1. SISTEMA ORIGINAL DA ECU
             st.markdown("### Falhas Registradas na ECU")
@@ -391,7 +391,7 @@ else:
             
             # 2. SISTEMA DE IA NEURO-SIMBÓLICO
             if ENABLE_AI_DIAGNOSIS:
-                st.markdown("### 🤖 Diagnóstico Avançado IA")
+                st.markdown("### Diagnóstico Avançado IA")
                 
                 if not IA_DISPONIVEL:
                     st.warning(f"O módulo de IA não está disponível neste servidor. Erro interno: {ERRO_CARREGAMENTO_IA}")
@@ -644,29 +644,40 @@ else:
                                         st.markdown("### Observações finais (IA):")
                                         with st.spinner("Gerando observação detalhada..."):
                                             try:
+                                                # 1. IDENTIFICAÇÃO DO VEÍCULO (Extraída do DataFrame)
+                                                memcal_id = int(df["Memcal ID"].iloc[-1])
+                                                descricao_modulo = MEMCAL_MAP.get(memcal_id, "Modelo Desconhecido")
+                                                # Lógica simples para definir o combustível
+                                                combustivel = "Álcool" if "ALC" in descricao_modulo.upper() else "Gasolina"
+                                            except:
+                                                descricao_modulo = "Modelo não identificado"
+                                                combustivel = "Desconhecido"
+
+                                            try:
                                                 chave_api = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or ""
-                                                if not chave_api:
-                                                    try:
-                                                        chave_api = st.secrets.get("GEMINI_API_KEY", "")
-                                                    except Exception:
-                                                        pass
-
-                                                chave_api = chave_api.strip(' "\'\n\r')
-
+                                                # ... (resto do seu código de verificação de chave_api)
+                                                
                                                 if chave_api:
                                                     prompt = f"""
                                                     Sintoma no motor (Multec 700): {texto_laudo_llm}
                                                     
                                                     Aja como um sistema automatizado de diagnóstico mecânico. 
-                                                    A sua ÚNICA função é retornar os passos de verificação.
+                                                    A sua ÚNICA função é retornar as possíveis causas e o itens que podem ser verificados.
+
+                                                    Veículo analisado: {descricao_modulo}.
+                                                    Todos eles são equipados com a injeção eletrônica Multec 700.
+                                                    Combustível: {combustivel}.
+                                                    Lembrar que esse modelo de injeção é 1 bico injetor, não tem sonda lambda (ajuste de CO2 é fixo, por potenciômetro), 
+                                                    Usa distribuidor com bobina impulsora, módulo HEI, bobina de saída única, rotor do distribuidor, tampa do distribuidor e sensor de velocidade de 8, 10, 13 e 16 pulsos.
+                                                    Ventoinha é controlada pela ECU, através de um relé.
                                                     
                                                     REGRAS OBRIGATÓRIAS (Falhar não é opção):
                                                     1. PROIBIDO usar saudações, introduções ou conclusões (ex: "Olá", "Com base...", "Aqui estão").
                                                     2. PROIBIDO descrever o que o condutor está a sentir.
-                                                    3. A sua resposta DEVE começar EXATAMENTE com a linha: "**Recomendações Claras – O que verificar primeiro:**"
-                                                    4. Liste logo abaixo as peças em formato de bullet points, sendo muito objetivo e usando negrito nas peças.
+                                                    3. A sua resposta DEVE começar EXATAMENTE com a linha: "**Avaliação Técnica IA e o que verificar primeiro:**"
+                                                    4. Faça uma breve descrição das possíveis causas e liste logo abaixo lista de verificação em formato de bullet points, sendo muito objetivo e usando negrito nas peças.
                                                     """
-                                                    
+                                                   
                                                     if NOVO_SDK_GENAI:
                                                         # Usa a nova biblioteca (google-genai) de forma estática
                                                         client = genai.Client(api_key=chave_api)
