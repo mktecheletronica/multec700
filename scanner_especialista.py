@@ -44,7 +44,7 @@ def calcular_mad_threshold(erros, multiplicador=5.0):
 class MecanicoEspecialista_Multec700:
     def __init__(self):
         self.LIMITES = {
-            'CTS_MAX_PERMITIDO': 102, 
+            'CTS_MAX_PERMITIDO': 103, 
             'RPM_MAX_SEM_CARGA': 2500, 
             'BATERIA_MIN_LIGADO': 12.0  
         }
@@ -87,7 +87,7 @@ class MecanicoEspecialista_Multec700:
         if tps < 2.0 and vss < 2:
             
             # REGRA ABSOLUTA DE VÁCUO
-            limite_map = 40 if cts > 70 else 45 
+            limite_map = 45 if cts > 70 else 45 
             
             if map_kpa > limite_map and rpm < 1000:
                 return "Vácuo Fraco na Marcha Lenta (Entrada de Ar, Sincronismo ou Ponto Atrasado)", "MAP (kPa)"
