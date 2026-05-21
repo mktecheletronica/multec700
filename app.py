@@ -379,7 +379,9 @@ else:
         with aba3:
             st.subheader("Módulo de Diagnóstico e Análise de Falhas")
             
+            # ---------------------------------------------------------
             # 1. SISTEMA ORIGINAL DA ECU
+            # ---------------------------------------------------------
             st.markdown("### Falhas Registradas na ECU")
             colunas_erros = [c for c in df.columns if c.startswith("Err_")]
             erros_ocorridos = df[colunas_erros].sum()
@@ -393,7 +395,9 @@ else:
 
             st.markdown("---")
             
+            # ---------------------------------------------------------
             # 2. SISTEMA DE IA NEURO-SIMBÓLICO
+            # ---------------------------------------------------------
             if ENABLE_AI_DIAGNOSIS:
                 st.markdown("### Diagnóstico Avançado IA")
                 
@@ -409,7 +413,8 @@ else:
                                 if modelo is None:
                                     st.error("Falha ao carregar o Cérebro Neural. Operação cancelada.")
                                 else:
-                                    # 2.1 Reconstrução Dinâmica do DataFrame Cru
+                                    # --- ETAPA 1: PREPARAÇÃO DOS DADOS E FUNIL DE SINAIS ---
+                                    # Reconstrução Dinâmica do DataFrame Cru para o Pipeline da IA (6Hz)
                                     if isinstance(st.session_state.log_selecionado, str) and st.session_state.log_selecionado.startswith("http"):
                                         resposta = requests.get(st.session_state.log_selecionado)
                                         texto_cru = resposta.text
@@ -421,6 +426,8 @@ else:
                                     
                                     df_alvo = pipeline.processar_log(df_cru_ia)
                                     
+                                    # Extração de Features Temporais (Diferenças absolutas)
+                                    # Ajuda a IA e o Crivo a entenderem a taxa de variação dos sensores
                                     df_alvo['CO2_Diff'] = df_alvo['CO2 (V)'].diff().fillna(0)
                                     df_alvo['TPS_Diff_Abs'] = df_alvo['TPS (%)'].diff().fillna(0).abs()
                                     df_alvo['RPM_Diff_Abs'] = df_alvo['RPM'].diff().fillna(0).abs()
@@ -431,18 +438,24 @@ else:
                                     df_alvo['CTS_C_Diff_Abs'] = df_alvo['CTS (°C)'].diff().fillna(0).abs()
                                     df_alvo['TPS_V_Diff_Abs'] = df_alvo['TPS (V)'].diff().fillna(0).abs()
                                     
+                                    # Limites Globais de MAD (Mean Absolute Deviation) baseados na carga do motor
                                     limites_por_estado = {'Idle': 3.5, 'Cruise': 4.0, 'Decel': 4.5, 'WOT': 5.0, 'Warmup': 6.0}
                                     limite_global_mad = 4.0
 
+                                    # --- ETAPA 2: CÉREBRO NEURAL (AUTOENCODER) ---
+                                    # Normaliza os dados e pede à rede neural para prever a reconstrução
                                     dados_normalizados = scaler.transform(df_alvo[COLUNAS_IA])
                                     dados_reconstruidos = modelo.predict(dados_normalizados, verbose=0)
                                     
+                                    # Cálculo de Erros Residuais da Rede Neural
                                     erros_individuais_brutos = np.power(dados_normalizados - dados_reconstruidos, 2)
                                     df_erros_individuais = pd.DataFrame(erros_individuais_brutos, columns=COLUNAS_IA, index=df_alvo.index)
                                     
                                     df_alvo['Erro_IA_Pura'] = np.mean(erros_individuais_brutos, axis=1)
                                     df_alvo['Limite_MAD_Estado'] = df_alvo['Estado_Motor'].map(limites_por_estado).fillna(limite_global_mad)
 
+                                    # --- ETAPA 3: MESTRE MECÂNICO (SISTEMA ESPECIALISTA) ---
+                                    # Avaliação Simbólica Baseada em Regras (Impede que a IA ignore princípios da física)
                                     diagnosticos, sensores_culpados_brutos, grau_severidade = [], [], []
                                     for index, linha in df_alvo.iterrows():
                                         erro_ia = linha['Erro_IA_Pura']
@@ -467,6 +480,8 @@ else:
                                     df_alvo['Culpado_Bruto'] = sensores_culpados_brutos
                                     df_alvo['Culpado_Final'] = df_alvo['Culpado_Bruto']
                                     
+                                    # --- ETAPA 4: CRIVO DE SANIDADE (FILTRO DE FALSOS POSITIVOS) ---
+                                    # Se a IA Genérica detetar anomalias estatísticas, o crivo valida se a variação é real ou elétrica
                                     mask_ia = df_alvo['Culpado_Bruto'] == 'IA_Genérica'
                                     if mask_ia.any():
                                         max_sensors = df_erros_individuais.loc[mask_ia, SENSORES_CAUSA_RAIZ].idxmax(axis=1)
@@ -493,6 +508,8 @@ else:
                                         df_alvo.loc[invalid_ia_mask, 'Diagnostico_Texto'] = "Normal"
                                         df_alvo.loc[invalid_ia_mask, 'Severidade_Final'] = 0
 
+                                    # --- ETAPA 5: CONFIRMAÇÃO TEMPORAL E FILTRO DE BORDAS ---
+                                    # Evita que picos de 1 frame (ruído de comunicação) gerem diagnósticos falsos
                                     FREQ_HZ = 6
                                     frames_persistencia = max(2, int(FREQ_HZ * 0.4)) 
                                     anomalia_instantanea = df_alvo['Severidade_Final'] > df_alvo['Limite_MAD_Estado']
@@ -503,6 +520,7 @@ else:
                                     df_alvo.iloc[:n_start, df_alvo.columns.get_loc('Falha_Confirmada')] = False
                                     df_alvo.iloc[-n_end:, df_alvo.columns.get_loc('Falha_Confirmada')] = False
 
+                                    # --- ETAPA 6: ORQUESTRAÇÃO DTW E LAUDO FINAL ---
                                     falhas_confirmadas = df_alvo[df_alvo['Falha_Confirmada']]
                                     picos_falha = len(falhas_confirmadas)
                                     
@@ -525,6 +543,7 @@ else:
                                             
                                             sensores_para_grafico.extend(culpados)
                                             
+                                            # Submissão à Fase 2 (Comparação com a Biblioteca de Curvas DTW)
                                             df_recorte = df_alvo[df_alvo['Falha_Confirmada']].copy()
                                             diag_dtw, distancia = biblioteca.classificar_anomalia(df_recorte, culpados)
                                             assinatura_dtw = diag_dtw
@@ -546,8 +565,10 @@ else:
                                         texto_laudo_llm = "Nenhum problema encontrado. O motor está a funcionar perfeitamente dentro das tolerâncias físicas e estatísticas."
                                         assinatura_dtw = "Nenhuma"
 
+                                    # Remover duplicados para o gráfico multi-eixo
                                     sensores_para_grafico = list(dict.fromkeys(sensores_para_grafico))[:4]
 
+                                    # --- ETAPA 7: RENDERIZAÇÃO DO RELATÓRIO GRÁFICO (PLOTLY) ---
                                     st.markdown("#### Relatório Gráfico Detalhado:")
                                     
                                     if 'RTM (s)' in df_alvo.columns:
@@ -569,6 +590,7 @@ else:
                                         specs=[[{"secondary_y": True}]] + [[{"secondary_y": False}]] * (num_paineis - 1)
                                     )
                                     
+                                    # Gráfico 1: RPM e TPS com Fundo Dinâmico do Estado do Motor
                                     leg_1 = "legend"
                                     fig_ia.add_trace(go.Scatter(x=tempo_plot, y=df_alvo['RPM'], name='RPM', line=dict(color='#1f77b4', width=2), legend=leg_1), row=1, col=1, secondary_y=False)
                                     fig_ia.add_trace(go.Scatter(x=tempo_plot, y=df_alvo['TPS (%)'], name='TPS (%)', line=dict(color='#2ca02c', width=1.5), opacity=0.7, legend=leg_1), row=1, col=1, secondary_y=True)
@@ -586,6 +608,7 @@ else:
                                     fig_ia.update_yaxes(title_text="RPM", title_font=dict(color="#1f77b4", size=11, family="Arial Black"), range=[0, 6800], row=1, col=1, secondary_y=False)
                                     fig_ia.update_yaxes(title_text="TPS (%)", title_font=dict(color="#2ca02c", size=11, family="Arial Black"), range=[0, 100], row=1, col=1, secondary_y=True)
 
+                                    # Gráficos Dinâmicos: Sensores Culpados pela IA com Realce da Anomalia
                                     for i, sensor in enumerate(sensores_para_grafico):
                                         row = i + 2
                                         leg_s = f"legend{row}"
@@ -600,6 +623,7 @@ else:
                                         
                                         fig_ia.update_yaxes(title_text=sensor, title_font=dict(color="darkorange", size=11, family="Arial Black"), row=row, col=1)
 
+                                    # Gráfico Final: Limite MAD (Constante) vs Erro de Reconstrução da Rede Neural
                                     row_ia = num_paineis
                                     leg_ia = f"legend{row_ia}"
                                     fig_ia.add_trace(go.Scatter(x=tempo_plot, y=df_alvo['Severidade_Final'], name='Erro Reconstrução', line=dict(color='white', width=1.5), legend=leg_ia), row=row_ia, col=1)
@@ -616,6 +640,7 @@ else:
 
                                     fig_ia.update_yaxes(title_text="Gravidade", title_font=dict(color="white", size=11, family="Arial Black"), row=row_ia, col=1)
 
+                                    # Bloqueio de Zoom e Configurações de UI Plotly
                                     layout_updates = {
                                         "height": 250 + (220 * (num_paineis - 1)), 
                                         "template": "plotly_dark",
@@ -642,22 +667,22 @@ else:
 
                                     st.plotly_chart(fig_ia, width="stretch", config={'scrollZoom': False})
 
-                                    # --- RESPOSTA HUMANIZADA (LLM) ---
+                                    # --- ETAPA 8: RESPOSTA HUMANIZADA (LLM - GOOGLE GEMINI) ---
                                     if ENABLE_LLM_EXPLANATION and picos_falha > 0:
                                         st.markdown("---")
                                         st.markdown("### Laudo Técnico do Mecânico Virtual:")
                                         with st.spinner("Gerando Laudo Técnico..."):
                                             try:
-                                                # 1. IDENTIFICAÇÃO DO VEÍCULO (Extraída do DataFrame)
+                                                # Identificação do veículo (Extraída do DataFrame via Memcal) para alimentar a IA
                                                 memcal_id = int(df["Memcal ID"].iloc[-1])
                                                 descricao_modulo = MEMCAL_MAP.get(memcal_id, "Modelo Desconhecido")
-                                                # Lógica simples para definir o combustível
                                                 combustivel = "Álcool" if "ALC" in descricao_modulo.upper() else "Gasolina"
                                             except:
                                                 descricao_modulo = "Modelo não identificado"
                                                 combustivel = "Desconhecido"
 
                                             try:
+                                                # Resgate dinâmico e seguro da Chave API
                                                 chave_api = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or ""
                                                 if not chave_api:
                                                     try:
@@ -674,11 +699,11 @@ else:
                                                     Aja como um sistema automatizado de diagnóstico mecânico. 
                                                     A sua ÚNICA função é retornar as possíveis causas e o itens que podem ser verificados.
 
-                                                    Veículo analisado: {descricao_modulo}.
+                                                    Veículo analisado: {descricao_modulo} - EFI.
                                                     Todos eles são equipados com a injeção eletrônica Multec 700.
                                                     Combustível: {combustivel}.
                                                     Lembrar que esse modelo de injeção é com apenas 1 bico injetor, não tem sonda lambda (ajuste de CO2 é fixo, por potenciômetro), 
-                                                    Usa distribuidor com bobina impulsora, Imã que gera o capmpo magnético no distribuidor para o sinal da bobina impulsora, módulo HEI, bobina de saída única, rotor do distribuidor, tampa do distribuidor, Atuador de marcha lenta do tipo motor de passo (IAC), sensor de pressão do tipo MAP e sensor de velocidade de 8, 10, 13 e 16 pulsos.
+                                                    Usa distribuidor com bobina impulsora, Imã que gera o campo magnético no distribuidor para o sinal da bobina impulsora, módulo HEI, bobina de ignição de saída única, rotor do distribuidor, tampa do distribuidor, Atuador de marcha lenta do tipo motor de passo (IAC), sensor de pressão do tipo MAP e sensor de velocidade de 8, 10, 13 e 16 pulsos.
                                                     Ventoinha é controlada pela ECU, através de um relé.
                                                     Alguns modelos possui válvula EGR, mas não são todos os modelos. (não chamamos de válvula PCV).
                                                     Não possui Avanço centrífugo. O avanço é controlado eletronicamente pela ECU.
@@ -689,12 +714,12 @@ else:
                                                     REGRAS OBRIGATÓRIAS (Falhar não é opção):
                                                     1. PROIBIDO usar saudações, introduções ou conclusões (ex: "Olá", "Com base...", "Aqui estão").
                                                     2. PROIBIDO descrever o que o condutor está a sentir.
-                                                    3. A sua resposta DEVE começar EXATAMENTE com a linha: "**Avaliação Técnica e o que verificar primeiro: **"
+                                                    3. A sua resposta DEVE começar EXATAMENTE com a linha: "Avaliação Técnica e o que verificar primeiro:"
                                                     4. Faça uma descrição das possíveis causas, levando em consideração todas as informações fornecidas do veículo e liste logo abaixo lista de verificação em formato de bullet points, sendo muito objetivo e usando negrito nas peças.
                                                     """
                                                    
                                                     if NOVO_SDK_GENAI:
-                                                        # Usa a nova biblioteca (google-genai) de forma estática
+                                                        # Integração utilizando o Novo SDK da Google
                                                         client = genai.Client(api_key=chave_api)
                                                         resposta_llm = client.models.generate_content(
                                                             model='gemini-2.5-flash',
@@ -703,7 +728,7 @@ else:
                                                         st.info(resposta_llm.text)
                                                         st.caption("⚠️ *Nota: A Inteligência Artificial pode cometer erros de interpretação. Confirme sempre o diagnóstico com um profissional qualificado.*")
                                                     else:
-                                                        # Usa a biblioteca antiga (google-generativeai) pesquisando modelos permitidos
+                                                        # Integração utilizando o SDK Clássico (google-generativeai)
                                                         genai_old.configure(api_key=chave_api)
                                                         modelos_permitidos = [m.name for m in genai_old.list_models() if 'generateContent' in m.supported_generation_methods]
                                                         
