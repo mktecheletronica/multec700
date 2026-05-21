@@ -399,7 +399,7 @@ else:
             # 2. SISTEMA DE IA NEURO-SIMBÓLICO
             # ---------------------------------------------------------
             if ENABLE_AI_DIAGNOSIS:
-                st.markdown("### Diagnóstico Avançado IA")
+                st.markdown("### Diagnóstico Avançado Utilizando Inteligência Artificial (IA)")
                 
                 if not IA_DISPONIVEL:
                     st.warning(f"O módulo de IA não está disponível neste servidor. Erro interno: {ERRO_CARREGAMENTO_IA}")
@@ -699,7 +699,7 @@ else:
                                                     Aja como um sistema automatizado de diagnóstico mecânico. 
                                                     A sua ÚNICA função é retornar as possíveis causas e o itens que podem ser verificados.
 
-                                                    Veículo analisado: {descricao_modulo} - EFI.
+                                                    Veículo analisado: {descricao_modulo}
                                                     Todos eles são equipados com a injeção eletrônica Multec 700.
                                                     Combustível: {combustivel}.
                                                     Lembrar que esse modelo de injeção é com apenas 1 bico injetor, não tem sonda lambda (ajuste de CO2 é fixo, por potenciômetro), 
