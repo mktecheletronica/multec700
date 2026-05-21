@@ -645,8 +645,8 @@ else:
                                     # --- RESPOSTA HUMANIZADA (LLM) ---
                                     if ENABLE_LLM_EXPLANATION and picos_falha > 0:
                                         st.markdown("---")
-                                        st.markdown("### Observações finais (IA):")
-                                        with st.spinner("Gerando observação detalhada..."):
+                                        st.markdown("### Laudo Técnico do Mecânico Virtual:")
+                                        with st.spinner("Gerando Laudo Técnico..."):
                                             try:
                                                 # 1. IDENTIFICAÇÃO DO VEÍCULO (Extraída do DataFrame)
                                                 memcal_id = int(df["Memcal ID"].iloc[-1])
@@ -669,7 +669,7 @@ else:
 
                                                 if chave_api:
                                                     prompt = f"""
-                                                    Sintoma no motor (Multec 700): {texto_laudo_llm}
+                                                    Sintoma no motor (Injeção Multec 700): {texto_laudo_llm}
                                                     
                                                     Aja como um sistema automatizado de diagnóstico mecânico. 
                                                     A sua ÚNICA função é retornar as possíveis causas e o itens que podem ser verificados.
@@ -677,19 +677,20 @@ else:
                                                     Veículo analisado: {descricao_modulo}.
                                                     Todos eles são equipados com a injeção eletrônica Multec 700.
                                                     Combustível: {combustivel}.
-                                                    Lembrar que esse modelo de injeção é 1 bico injetor, não tem sonda lambda (ajuste de CO2 é fixo, por potenciômetro), 
-                                                    Usa distribuidor com bobina impulsora, módulo HEI, bobina de saída única, rotor do distribuidor, tampa do distribuidor, Atuador de marcha lenta do tipo motor de passo (IAC), sensor de pressão do tipo MAP e sensor de velocidade de 8, 10, 13 e 16 pulsos.
+                                                    Lembrar que esse modelo de injeção é com apenas 1 bico injetor, não tem sonda lambda (ajuste de CO2 é fixo, por potenciômetro), 
+                                                    Usa distribuidor com bobina impulsora, Imã que gera o capmpo magnético no distribuidor para o sinal da bobina impulsora, módulo HEI, bobina de saída única, rotor do distribuidor, tampa do distribuidor, Atuador de marcha lenta do tipo motor de passo (IAC), sensor de pressão do tipo MAP e sensor de velocidade de 8, 10, 13 e 16 pulsos.
                                                     Ventoinha é controlada pela ECU, através de um relé.
                                                     Alguns modelos possui válvula EGR, mas não são todos os modelos. (não chamamos de válvula PCV).
                                                     Não possui Avanço centrífugo. O avanço é controlado eletronicamente pela ECU.
-                                                    Não possui sensor IAC (temperatura do ar)
+                                                    Não possui sensor IAC (temperatura do ar).
+                                                    Não possui sensor de posição do comando, fase, ou roda fônica.
                                                     Os Modelos movidos à álcool possuem resistência de aquecimento no coletor de adimissão e injetor de gasolina para partida a frio.
                                                     
                                                     REGRAS OBRIGATÓRIAS (Falhar não é opção):
                                                     1. PROIBIDO usar saudações, introduções ou conclusões (ex: "Olá", "Com base...", "Aqui estão").
                                                     2. PROIBIDO descrever o que o condutor está a sentir.
-                                                    3. A sua resposta DEVE começar EXATAMENTE com a linha: "**Avaliação Técnica IA e o que verificar primeiro:**"
-                                                    4. Faça uma breve descrição das possíveis causas e liste logo abaixo lista de verificação em formato de bullet points, sendo muito objetivo e usando negrito nas peças.
+                                                    3. A sua resposta DEVE começar EXATAMENTE com a linha: "**Avaliação Técnica e o que verificar primeiro: **"
+                                                    4. Faça uma descrição das possíveis causas, levando em consideração todas as informações fornecidas do veículo e liste logo abaixo lista de verificação em formato de bullet points, sendo muito objetivo e usando negrito nas peças.
                                                     """
                                                    
                                                     if NOVO_SDK_GENAI:
@@ -736,27 +737,27 @@ else:
             st.subheader("Tabela de Dados Brutos")
             st.dataframe(df.drop(columns=["Tempo_Relogio", "RTM_Continuo"]), width="stretch", height=500)
 
-        # ABA 5: GLOSSÁRIO (Estruturado em 3 Colunas)
+        # ABA 5: GLOSSÁRIO (Estruturado em 4 Colunas)
         with aba5:
             st.subheader("📖 Glossário de Parâmetros Multec 700")
             st.markdown("Consulta rápida do significado de cada abreviação e flag gerada pela ECU.")
             
-            col_g1, col_g2, col_g3 = st.columns(3)
+            col_g1, col_g2, col_g3, col_g4 = st.columns(4)
             
             with col_g1:
                 st.markdown("#### 🌡️ Sensores e Medidas")
                 st.markdown("""
                 | Parâmetro | Significado |
                 | :--- | :--- |
-                | **RTM (s)** | *Run Time Motor* - Tempo de funcionamento. |
-                | **RPM** | *Revolutions Per Minute* - Rotação. |
-                | **CTS (°C/V)**| *Coolant Temp* - Temperatura da água. |
-                | **VSS (km/h)**| *Vehicle Speed* - Velocidade do veículo. |
-                | **TPS (%/V)** | *Throttle Position* - Posição da borboleta. |
-                | **MAP (kPa/V)**| *Manifold Pressure* - Pressão do coletor. |
+                | **RTM (s)** | Tempo em funcionamento. |
+                | **RPM** | Rotação do motor. |
+                | **CTS (°C/V)**| Temperatura da água. |
+                | **VSS (km/h)**| Velocidade do veículo. |
+                | **TPS (%/V)** | Posição da borboleta. |
+                | **MAP (kPa/V)**| Pressão do coletor. |
                 | **Pressão Atm**| Pressão atmosférica inicial. |
-                | **Bateria (V)**| Tensão lida pela ECU. |
-                | **CO2 (V)** | Potenciómetro de ajuste de mistura. |
+                | **Bateria (V)**| Tensão do sistema. |
+                | **CO2 (V)** | Potenciómetro de mistura. |
                 """)
 
             with col_g2:
@@ -764,47 +765,48 @@ else:
                 st.markdown("""
                 | Parâmetro | Significado |
                 | :--- | :--- |
-                | **Avanço (°)** | Ponto de ignição calculado. |
-                | **BPW (ms)** | *Base Pulse Width* - Tempo de injeção. |
-                | **AFR** | *Air Fuel Ratio* - Relação Ar/Combustível. |
-                | **IAC (Passos)**| *Idle Air Control* - Motor de passo. |
+                | **Avanço (°)** | Ponto de ignição. |
+                | **BPW (ms)** | Tempo de injeção. |
+                | **AFR** | Relação Ar/Combustível. |
+                | **IAC (Passos)**| Posição motor de passo. |
                 | **Marcha Lenta**| Rotação alvo a manter. |
-                | **TBRP** | Tempo entre pulsos da ignição. |
+                | **TBRP** | Tempo entre pulsos (ignição). |
                 | **Memcal ID** | ID gravado na EPROM. |
                 """)
                 
-                st.markdown("#### ⚠️ Códigos de Erro")
+            with col_g3:
+                st.markdown("#### 🚩 Flags e Status")
                 st.markdown("""
-                | Erro | Falha Reportada |
+                | Flag / Sinal | Condição Ativa |
                 | :--- | :--- |
-                | **14/15** | Sensor de Temperatura (CTS). |
-                | **21/22** | Sensor da Borboleta (TPS). |
-                | **24** | Sensor de Velocidade (VSS). |
-                | **33/34** | Sensor de Pressão (MAP). |
-                | **35** | Motor de Passo (IAC). |
-                | **42** | Módulo de Ignição (HEI). |
-                | **51** | Defeito no Memcal (EPROM). |
-                | **54** | Circuito de ajuste de CO2. |
+                | **Flag_RAQ** | Aquecimento Coletor. |
+                | **Flag_ACC** | Embraiagem A/C. |
+                | **Flag_BCE** | Controle de avanço. |
+                | **Flag_CAC** | Ciclagem do A/C. |
+                | **Flag_Fan1/2**| Eletroventilador ON. |
+                | **Flag_RPF** | Partida a Frio. |
+                | **Flag_ShiftLight**| Luz de mudança. |
+                | **Flag_ISV** | Solicitação Ventoinha. |
+                | **Flag_Falha_Ativa**| Tem erro gravado. |
+                | **Flag_TPS_IDLE**| Borboleta fechada. |
+                | **Flag_Clear_Flood**| Desafogamento (100%). |
+                | **Flag_Park_Drive**| Câmbio em P/D. |
+                | **Flag_CutOff**| Corte de injeção. |
+                | **Flag_Motor_ON**| Motor rodando. |
+                | **Flag_Em_Movimento**| Velocidade > 0. |
                 """)
 
-            with col_g3:
-                st.markdown("#### 🚩 Flags (Sinais e Status)")
+            with col_g4:
+                st.markdown("#### ⚠️ Códigos de Erro")
                 st.markdown("""
-                | Flag / Sinal | Condição / Status |
+                | Erro | Componente / Falha |
                 | :--- | :--- |
-                | **Flag_RAQ** | Aquecimento do Coletor ativado. |
-                | **Flag_ACC** | Embraiagem do A/C acoplada. |
-                | **Flag_BCE** | Controle de desvio (avanço). |
-                | **Flag_CAC** | Ciclagem do Ar Condicionado. |
-                | **Flag_Fan1/2**| Eletroventilador ligado. |
-                | **Flag_RPF** | Partida a Frio acionada. |
-                | **Flag_ShiftLight**| Luz indicadora de mudança. |
-                | **Flag_ISV** | Solicitação da Ventoinha. |
-                | **Flag_Falha_Ativa**| Código de falha presente. |
-                | **Flag_TPS_IDLE**| Borboleta totalmente fechada. |
-                | **Flag_Clear_Flood**| Desafogamento (Pedal 100%). |
-                | **Flag_Park_Drive**| Seletor automático em P ou D. |
-                | **Flag_CutOff**| Corte de injeção ativado. |
-                | **Flag_Motor_ON**| Motor em funcionamento. |
-                | **Flag_Em_Movimento**| Velocidade > 0. |
+                | **14/15** | Sensor Temperatura (CTS). |
+                | **21/22** | Sensor Borboleta (TPS). |
+                | **24** | Sensor Velocidade (VSS). |
+                | **33/34** | Sensor Pressão (MAP). |
+                | **35** | Motor de Passo (IAC). |
+                | **42** | Módulo de Ignição (HEI). |
+                | **51** | Defeito Memcal (EPROM). |
+                | **54** | Circuito Ajuste de CO2. |
                 """)
