@@ -214,7 +214,7 @@ if st.session_state.log_selecionado is None:
     st.markdown("<h3 style='text-align: left; color: #4F4F4F; margin-bottom: 20px;'>Visualizador de LOG's Multec 700 DashBoard 3.0</h3>", unsafe_allow_html=True)
     
     st.subheader("🌐 Banco de Dados da Comunidade")
-    st.write("Clique na linha de registro do Log que deseja carregar para iniciar a análise.")
+    st.write("Clique no botão à esquerda da linha de registro do Log que deseja carregar para iniciar a análise.")
     
     df_publicos = carregar_lista_logs_publicos()
     
