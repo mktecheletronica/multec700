@@ -215,12 +215,14 @@ if st.session_state.log_selecionado is None:
     
     st.subheader("🌐 Banco de Dados da Comunidade")
     st.write("👇 Clique no botão à esquerda da linha de registro do Log que deseja carregar para iniciar a análise.")
-    st.info(" **Dica:** Para uma melhor experiência de análise e visualização dos gráficos de telemetria, recomendamos o uso de um computador.")
+    st.info("💻 **Dica:** Para uma melhor experiência de análise e visualização dos gráficos de telemetria, recomendamos o uso de um computador.")
     
     df_publicos = carregar_lista_logs_publicos()
     
     if not df_publicos.empty:
+        # Melhoria 1: Ordenar pela coluna "Data/Hora" mostrando primeiro os registros mais novos
         df_publicos = df_publicos.sort_values(by="Data/Hora", ascending=False)
+        
         event = st.dataframe(
             df_publicos,
             column_order=["Data/Hora", "Duração", "Usuário", "Veículo", "Comentário", "Obs_Moderador"],
@@ -265,10 +267,10 @@ if st.session_state.log_selecionado is None:
                 conteudo = arquivo_local.getvalue().decode('utf-8', errors='ignore')
                 linhas = [l for l in conteudo.split('\n') if l.strip()]
                 
-                if not linhas:
+                if not lines:
                     st.error("❌ O arquivo selecionado está vazio.")
                 else:
-                    ultima_linha = linhas[-1].split('|')
+                    ultima_linha = lines[-1].split('|')
                     if len(ultima_linha) < 53:
                         st.error("❌ Arquivo incompatível! Este log parece pertencer a uma versão antiga ou não é compatível.")
                     else:
@@ -353,12 +355,13 @@ else:
                 if tem_analog:
                     for idx, sensor in enumerate(selecionados_analog):
                         axis_name = f"y{idx + 1}"
+                        # Otimizado usando o modo de alta performance WebGL (go.Scattergl)
                         fig.add_trace(go.Scattergl(x=df['Tempo_Relogio'], y=df[sensor], name=sensor, mode='lines', line=dict(color=cores[idx % len(cores)]), yaxis=axis_name))
                         vmin, vmax = LIMITES_SENSORES.get(sensor, (df[sensor].min(), df[sensor].max()))
                         axis_key = f"yaxis{idx + 1}" if idx > 0 else "yaxis"
                         layout_updates[axis_key] = dict(range=[vmin, vmax], overlaying="y" if idx > 0 else None, visible=False, fixedrange=True)
 
-if tem_flags:
+                if tem_flags:
                     flag_axis_idx = len(selecionados_analog) + 1 if tem_analog else 1
                     axis_name_flag = f"y{flag_axis_idx}"
                     axis_key_flag = f"yaxis{flag_axis_idx}"
@@ -369,7 +372,7 @@ if tem_flags:
                         if flag in ["Flag_CAC", "Flag_ISV", "Flag_ACC"]: valores_numericos = 1 - valores_numericos
                         y_plot = valores_numericos * 0.5
                         
-                        # 🟢 Salvamos a cor na variável cor_base
+                        # Salvando a cor na variável cor_base para o preenchimento suave
                         cor_base = cores[cor_idx]
                         
                         fig.add_trace(go.Scatter(
@@ -378,9 +381,9 @@ if tem_flags:
                             name=flag, 
                             mode='lines', 
                             line_shape='hv', 
-                            line=dict(color=cor_base, width=2), # 🟢 Usando cor_base aqui
+                            line=dict(color=cor_base, width=2),
                             
-                            # 🟢 Adicionado o preenchimento com transparência automática
+                            # Preenchimento transparente suave nas flags (15% de opacidade)
                             fill='tozeroy',
                             fillcolor=f"rgba{str(px.colors.hex_to_rgb(cor_base) + (0.15,))}",
                             
@@ -394,7 +397,9 @@ if tem_flags:
                 tempo_inicial = df['Tempo_Relogio'].min()
                 range_inicial = [tempo_inicial, min(tempo_inicial + pd.Timedelta(minutes=1), df['Tempo_Relogio'].max())]
                 fig.update_xaxes(title_text="Tempo (hh:mm:ss)", tickformat="%H:%M:%S", hoverformat="%H:%M:%S.%L", range=range_inicial, rangeslider=dict(visible=True, thickness=0.05))
-                st.plotly_chart(fig, width="stretch")
+                
+                # Ativado o 'on_select="rerun"' para reter o zoom durante interações na legenda ou seletores
+                st.plotly_chart(fig, width="stretch", on_select="rerun")
 
         # ABA 3: DIAGNÓSTICO E INTELIGÊNCIA ARTIFICIAL
         with aba3:
