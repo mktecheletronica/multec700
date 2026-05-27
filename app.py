@@ -331,7 +331,7 @@ else:
             col_c.metric("TPS Médio", f"{df['TPS (%)'].mean():.1f} %")
             col_d.metric("MAP Médio", f"{df['MAP (kPa)'].mean():.1f} kPa")
 
-        # ABA 2: GRÁFICOS
+        # ABA 2: GRÁFICOS (ALTERADO AQUI CONFORME PEDIDO)
         with aba2:
             colunas_analogicas = list(LIMITES_SENSORES.keys())
             colunas_flags = [c for c in df.columns if c.startswith("Flag_")]
@@ -363,12 +363,43 @@ else:
                     axis_name_flag = f"y{flag_axis_idx}"
                     axis_key_flag = f"yaxis{flag_axis_idx}"
                     
+                    # Função para converter Hexadecimal de cor para RGBA com transparência
+                    def hex_to_rgba(hex_color, opacity=0.15):
+                        hex_color = hex_color.lstrip('#')
+                        try:
+                            r, g, b = tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+                            return f"rgba({r}, {g}, {b}, {opacity})"
+                        except:
+                            return f"rgba(100, 100, 100, {opacity})" # fallback
+                    
                     for f_idx, flag in enumerate(selecionados_flags):
                         cor_idx = (len(selecionados_analog) + f_idx) % len(cores)
+                        cor_hex = cores[cor_idx]
+                        cor_transparente = hex_to_rgba(cor_hex, 0.15) # Gera cor com 15% de preenchimento
+                        
                         valores_numericos = pd.to_numeric(df[flag], errors='coerce').fillna(0)
-                        if flag in ["Flag_CAC", "Flag_ISV", "Flag_ACC"]: valores_numericos = 1 - valores_numericos
-                        y_plot = valores_numericos * 0.5
-                        fig.add_trace(go.Scatter(x=df['Tempo_Relogio'], y=y_plot, name=flag, mode='lines', line_shape='hv', line=dict(color=cores[cor_idx], width=2), customdata=valores_numericos.astype(int), hovertemplate=f"<b>{flag}</b>: %{{customdata}}<extra></extra>", yaxis=axis_name_flag))
+                        
+                        # Inverte flags específicas para o visual
+                        if flag in ["Flag_CAC", "Flag_ISV", "Flag_ACC"]: 
+                            valores_numericos = 1 - valores_numericos
+                            
+                        # MUDANÇA: Multiplicando por 1.0 para cobrir 100% da escala Y (antes era 0.5)
+                        y_plot = valores_numericos * 1.0 
+                        
+                        fig.add_trace(go.Scatter(
+                            x=df['Tempo_Relogio'], 
+                            y=y_plot, 
+                            name=flag, 
+                            mode='lines', 
+                            line_shape='hv', 
+                            line=dict(color=cor_hex, width=2),
+                            fill='tozeroy',           # Adiciona o preenchimento para baixo
+                            fillcolor=cor_transparente, # Aplica a cor com opacidade
+                            customdata=valores_numericos.astype(int), 
+                            hovertemplate=f"<b>{flag}</b>: %{{customdata}}<extra></extra>", 
+                            yaxis=axis_name_flag
+                        ))
+                    
                     layout_updates[axis_key_flag] = dict(range=[0.0, 1.0], overlaying="y" if tem_analog else None, visible=False, fixedrange=True)
 
                 fig.update_layout(**layout_updates, height=600, hovermode="x unified", template="plotly_dark", margin=dict(l=20, r=20, t=50, b=20), title="Gráficos do arquivo LOG")
