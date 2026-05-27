@@ -235,7 +235,7 @@ if st.session_state.log_selecionado is None:
                 "Obs_Moderador": st.column_config.TextColumn("Observações do Moderador", width=350),
                 "ID": None, "Status_Geral": None, "Tipo_Trajeto": None,
                 "F_Engasgo": None, "F_Partida": None, "F_Potencia": None,
-                "F_MarchaLenta": None, "F_Apagando": None, "F_Consumo": None, "ID_Arquivo": None
+                "F_MarchaLenta": None, "F_Apagando", "F_Consumo": None, "ID_Arquivo": None
             },
             hide_index=True,
             width="stretch", 
@@ -393,13 +393,22 @@ else:
                         ))
                     layout_updates[axis_key_flag] = dict(range=[0.0, 1.0], overlaying="y" if tem_analog else None, visible=False, fixedrange=True)
 
-                fig.update_layout(**layout_updates, height=600, hovermode="x unified", template="plotly_dark", margin=dict(l=20, r=20, t=50, b=20), title="Gráficos do arquivo LOG")
+                # Melhoria 2: Adicionado uirevision para fixar e manter o zoom ao trocar filtros/legendas/sensores
+                fig.update_layout(
+                    **layout_updates, 
+                    height=600, 
+                    hovermode="x unified", 
+                    template="plotly_dark", 
+                    margin=dict(l=20, r=20, t=50, b=20), 
+                    title="Gráficos do arquivo LOG",
+                    uirevision=st.session_state.nome_log_selecionado
+                )
                 tempo_inicial = df['Tempo_Relogio'].min()
                 range_inicial = [tempo_inicial, min(tempo_inicial + pd.Timedelta(minutes=1), df['Tempo_Relogio'].max())]
                 fig.update_xaxes(title_text="Tempo (hh:mm:ss)", tickformat="%H:%M:%S", hoverformat="%H:%M:%S.%L", range=range_inicial, rangeslider=dict(visible=True, thickness=0.05))
                 
-                # Ativado o 'on_select="rerun"' para reter o zoom durante interações na legenda ou seletores
-                st.plotly_chart(fig, width="stretch", on_select="rerun")
+                # Melhoria 3: Removido on_select="rerun" para reativar o cursor de zoom padrão (clique-e-arrastar direto no gráfico)
+                st.plotly_chart(fig, width="stretch")
 
         # ABA 3: DIAGNÓSTICO E INTELIGÊNCIA ARTIFICIAL
         with aba3:
