@@ -343,24 +343,9 @@ else:
                 selecionados_flags = st.multiselect("Sinais Digitais / Flags (ON/OFF):", options=colunas_flags, default=["Flag_Fan1", "Flag_Fan2", "Flag_ShiftLight"])
 
             if selecionados_analog or selecionados_flags:
-                tem_analog = len(selecionados_analog) > 0
-                tem_flags = len(selecionados_flags) > 0
-    
-                # 🟢 NOVO: Se houver os dois tipos, cria 2 linhas de subplots
-                if tem_analog and tem_flags:
-                    fig = make_subplots(
-                    rows=2, cols=1, 
-                    shared_xaxes=True,             # Sincroniza o zoom do eixo X tempo
-                    vertical_spacing=0.04,         # Espaço colado entre os dois gráficos
-                    row_width=[0.3, 0.7]           # 70% de altura pro analógico, 30% pras flags
-                )
-                linha_analog, linha_flag = 1, 2
-            else:
                 fig = go.Figure()
-                linha_analog, linha_flag = 1, 1
-
-            cores = px.colors.qualitative.Plotly
-            layout_updates = {}
+                cores = px.colors.qualitative.Plotly
+                layout_updates = {}
                 
                 tem_analog = len(selecionados_analog) > 0
                 tem_flags = len(selecionados_flags) > 0
@@ -373,7 +358,7 @@ else:
                         axis_key = f"yaxis{idx + 1}" if idx > 0 else "yaxis"
                         layout_updates[axis_key] = dict(range=[vmin, vmax], overlaying="y" if idx > 0 else None, visible=False, fixedrange=True)
 
-                if tem_flags:
+if tem_flags:
                     flag_axis_idx = len(selecionados_analog) + 1 if tem_analog else 1
                     axis_name_flag = f"y{flag_axis_idx}"
                     axis_key_flag = f"yaxis{flag_axis_idx}"
@@ -383,7 +368,26 @@ else:
                         valores_numericos = pd.to_numeric(df[flag], errors='coerce').fillna(0)
                         if flag in ["Flag_CAC", "Flag_ISV", "Flag_ACC"]: valores_numericos = 1 - valores_numericos
                         y_plot = valores_numericos * 0.5
-                        fig.add_trace(go.Scatter(x=df['Tempo_Relogio'], y=y_plot, name=flag, mode='lines', line_shape='hv', line=dict(color=cores[cor_idx], width=2), customdata=valores_numericos.astype(int), hovertemplate=f"<b>{flag}</b>: %{{customdata}}<extra></extra>", yaxis=axis_name_flag))
+                        
+                        # 🟢 Salvamos a cor na variável cor_base
+                        cor_base = cores[cor_idx]
+                        
+                        fig.add_trace(go.Scatter(
+                            x=df['Tempo_Relogio'], 
+                            y=y_plot, 
+                            name=flag, 
+                            mode='lines', 
+                            line_shape='hv', 
+                            line=dict(color=cor_base, width=2), # 🟢 Usando cor_base aqui
+                            
+                            # 🟢 Adicionado o preenchimento com transparência automática
+                            fill='tozeroy',
+                            fillcolor=f"rgba{str(px.colors.hex_to_rgb(cor_base) + (0.15,))}",
+                            
+                            customdata=valores_numericos.astype(int), 
+                            hovertemplate=f"<b>{flag}</b>: %{{customdata}}<extra></extra>", 
+                            yaxis=axis_name_flag
+                        ))
                     layout_updates[axis_key_flag] = dict(range=[0.0, 1.0], overlaying="y" if tem_analog else None, visible=False, fixedrange=True)
 
                 fig.update_layout(**layout_updates, height=600, hovermode="x unified", template="plotly_dark", margin=dict(l=20, r=20, t=50, b=20), title="Gráficos do arquivo LOG")
