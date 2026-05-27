@@ -214,15 +214,13 @@ if st.session_state.log_selecionado is None:
     st.markdown("<h3 style='text-align: left; color: #4F4F4F; margin-bottom: 20px;'>Visualizador de LOG's Multec 700 DashBoard 3.0</h3>", unsafe_allow_html=True)
     
     st.subheader("🌐 Banco de Dados da Comunidade")
+    st.info(" **Dica:** Para uma melhor experiência de análise e visualização dos gráficos de telemetria, recomendamos o uso de um computador.")
     st.write("👇 Clique no botão à esquerda da linha de registro do Log que deseja carregar para iniciar a análise.")
-    st.info("💻 **Dica:** Para uma melhor experiência de análise e visualização dos gráficos de telemetria, recomendamos o uso de um computador.")
-    
+        
     df_publicos = carregar_lista_logs_publicos()
     
     if not df_publicos.empty:
-        # Melhoria 1: Ordenar pela coluna "Data/Hora" mostrando primeiro os registros mais novos
         df_publicos = df_publicos.sort_values(by="Data/Hora", ascending=False)
-        
         event = st.dataframe(
             df_publicos,
             column_order=["Data/Hora", "Duração", "Usuário", "Veículo", "Comentário", "Obs_Moderador"],
@@ -235,7 +233,7 @@ if st.session_state.log_selecionado is None:
                 "Obs_Moderador": st.column_config.TextColumn("Observações do Moderador", width=350),
                 "ID": None, "Status_Geral": None, "Tipo_Trajeto": None,
                 "F_Engasgo": None, "F_Partida": None, "F_Potencia": None,
-                "F_MarchaLenta": None, "F_Apagando", "F_Consumo": None, "ID_Arquivo": None
+                "F_MarchaLenta": None, "F_Apagando": None, "F_Consumo": None, "ID_Arquivo": None
             },
             hide_index=True,
             width="stretch", 
@@ -267,10 +265,10 @@ if st.session_state.log_selecionado is None:
                 conteudo = arquivo_local.getvalue().decode('utf-8', errors='ignore')
                 linhas = [l for l in conteudo.split('\n') if l.strip()]
                 
-                if not lines:
+                if not linhas:
                     st.error("❌ O arquivo selecionado está vazio.")
                 else:
-                    ultima_linha = lines[-1].split('|')
+                    ultima_linha = linhas[-1].split('|')
                     if len(ultima_linha) < 53:
                         st.error("❌ Arquivo incompatível! Este log parece pertencer a uma versão antiga ou não é compatível.")
                     else:
@@ -355,8 +353,7 @@ else:
                 if tem_analog:
                     for idx, sensor in enumerate(selecionados_analog):
                         axis_name = f"y{idx + 1}"
-                        # Otimizado usando o modo de alta performance WebGL (go.Scattergl)
-                        fig.add_trace(go.Scattergl(x=df['Tempo_Relogio'], y=df[sensor], name=sensor, mode='lines', line=dict(color=cores[idx % len(cores)]), yaxis=axis_name))
+                        fig.add_trace(go.Scatter(x=df['Tempo_Relogio'], y=df[sensor], name=sensor, mode='lines', line=dict(color=cores[idx % len(cores)]), yaxis=axis_name))
                         vmin, vmax = LIMITES_SENSORES.get(sensor, (df[sensor].min(), df[sensor].max()))
                         axis_key = f"yaxis{idx + 1}" if idx > 0 else "yaxis"
                         layout_updates[axis_key] = dict(range=[vmin, vmax], overlaying="y" if idx > 0 else None, visible=False, fixedrange=True)
@@ -371,43 +368,13 @@ else:
                         valores_numericos = pd.to_numeric(df[flag], errors='coerce').fillna(0)
                         if flag in ["Flag_CAC", "Flag_ISV", "Flag_ACC"]: valores_numericos = 1 - valores_numericos
                         y_plot = valores_numericos * 0.5
-                        
-                        # Salvando a cor na variável cor_base para o preenchimento suave
-                        cor_base = cores[cor_idx]
-                        
-                        fig.add_trace(go.Scatter(
-                            x=df['Tempo_Relogio'], 
-                            y=y_plot, 
-                            name=flag, 
-                            mode='lines', 
-                            line_shape='hv', 
-                            line=dict(color=cor_base, width=2),
-                            
-                            # Preenchimento transparente suave nas flags (15% de opacidade)
-                            fill='tozeroy',
-                            fillcolor=f"rgba{str(px.colors.hex_to_rgb(cor_base) + (0.15,))}",
-                            
-                            customdata=valores_numericos.astype(int), 
-                            hovertemplate=f"<b>{flag}</b>: %{{customdata}}<extra></extra>", 
-                            yaxis=axis_name_flag
-                        ))
+                        fig.add_trace(go.Scatter(x=df['Tempo_Relogio'], y=y_plot, name=flag, mode='lines', line_shape='hv', line=dict(color=cores[cor_idx], width=2), customdata=valores_numericos.astype(int), hovertemplate=f"<b>{flag}</b>: %{{customdata}}<extra></extra>", yaxis=axis_name_flag))
                     layout_updates[axis_key_flag] = dict(range=[0.0, 1.0], overlaying="y" if tem_analog else None, visible=False, fixedrange=True)
 
-                # Melhoria 2: Adicionado uirevision para fixar e manter o zoom ao trocar filtros/legendas/sensores
-                fig.update_layout(
-                    **layout_updates, 
-                    height=600, 
-                    hovermode="x unified", 
-                    template="plotly_dark", 
-                    margin=dict(l=20, r=20, t=50, b=20), 
-                    title="Gráficos do arquivo LOG",
-                    uirevision=st.session_state.nome_log_selecionado
-                )
+                fig.update_layout(**layout_updates, height=600, hovermode="x unified", template="plotly_dark", margin=dict(l=20, r=20, t=50, b=20), title="Gráficos do arquivo LOG")
                 tempo_inicial = df['Tempo_Relogio'].min()
                 range_inicial = [tempo_inicial, min(tempo_inicial + pd.Timedelta(minutes=1), df['Tempo_Relogio'].max())]
                 fig.update_xaxes(title_text="Tempo (hh:mm:ss)", tickformat="%H:%M:%S", hoverformat="%H:%M:%S.%L", range=range_inicial, rangeslider=dict(visible=True, thickness=0.05))
-                
-                # Melhoria 3: Removido on_select="rerun" para reativar o cursor de zoom padrão (clique-e-arrastar direto no gráfico)
                 st.plotly_chart(fig, width="stretch")
 
         # ABA 3: DIAGNÓSTICO E INTELIGÊNCIA ARTIFICIAL
