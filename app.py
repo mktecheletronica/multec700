@@ -343,9 +343,24 @@ else:
                 selecionados_flags = st.multiselect("Sinais Digitais / Flags (ON/OFF):", options=colunas_flags, default=["Flag_Fan1", "Flag_Fan2", "Flag_ShiftLight"])
 
             if selecionados_analog or selecionados_flags:
+                tem_analog = len(selecionados_analog) > 0
+                tem_flags = len(selecionados_flags) > 0
+    
+                # 🟢 NOVO: Se houver os dois tipos, cria 2 linhas de subplots
+                if tem_analog and tem_flags:
+                    fig = make_subplots(
+                    rows=2, cols=1, 
+                    shared_xaxes=True,             # Sincroniza o zoom do eixo X tempo
+                    vertical_spacing=0.04,         # Espaço colado entre os dois gráficos
+                    row_width=[0.3, 0.7]           # 70% de altura pro analógico, 30% pras flags
+                )
+                linha_analog, linha_flag = 1, 2
+            else:
                 fig = go.Figure()
-                cores = px.colors.qualitative.Plotly
-                layout_updates = {}
+                linha_analog, linha_flag = 1, 1
+
+            cores = px.colors.qualitative.Plotly
+            layout_updates = {}
                 
                 tem_analog = len(selecionados_analog) > 0
                 tem_flags = len(selecionados_flags) > 0
@@ -353,7 +368,7 @@ else:
                 if tem_analog:
                     for idx, sensor in enumerate(selecionados_analog):
                         axis_name = f"y{idx + 1}"
-                        fig.add_trace(go.Scatter(x=df['Tempo_Relogio'], y=df[sensor], name=sensor, mode='lines', line=dict(color=cores[idx % len(cores)]), yaxis=axis_name))
+                        fig.add_trace(go.Scattergl(x=df['Tempo_Relogio'], y=df[sensor], name=sensor, mode='lines', line=dict(color=cores[idx % len(cores)]), yaxis=axis_name))
                         vmin, vmax = LIMITES_SENSORES.get(sensor, (df[sensor].min(), df[sensor].max()))
                         axis_key = f"yaxis{idx + 1}" if idx > 0 else "yaxis"
                         layout_updates[axis_key] = dict(range=[vmin, vmax], overlaying="y" if idx > 0 else None, visible=False, fixedrange=True)
