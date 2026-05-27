@@ -239,7 +239,7 @@ if st.session_state.log_selecionado is None:
             width="stretch", 
             on_select="rerun",
             selection_mode="single-row",
-            height=600
+            height=550
         )
         
         # Ação Automática ao Clicar na Tabela
@@ -353,7 +353,7 @@ else:
                 if tem_analog:
                     for idx, sensor in enumerate(selecionados_analog):
                         axis_name = f"y{idx + 1}"
-                        fig.add_trace(go.Scatter(x=df['Tempo_Relogio'], y=df[sensor], name=sensor, mode='lines', line=dict(color=cores[idx % len(cores)]), yaxis=axis_name))
+                        fig.add_trace(go.Scattergl(x=df['Tempo_Relogio'], y=df[sensor], name=sensor, mode='lines', line=dict(color=cores[idx % len(cores)]), yaxis=axis_name))
                         vmin, vmax = LIMITES_SENSORES.get(sensor, (df[sensor].min(), df[sensor].max()))
                         axis_key = f"yaxis{idx + 1}" if idx > 0 else "yaxis"
                         layout_updates[axis_key] = dict(range=[vmin, vmax], overlaying="y" if idx > 0 else None, visible=False, fixedrange=True)
