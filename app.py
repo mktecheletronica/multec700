@@ -331,7 +331,7 @@ else:
             col_c.metric("TPS Médio", f"{df['TPS (%)'].mean():.1f} %")
             col_d.metric("MAP Médio", f"{df['MAP (kPa)'].mean():.1f} kPa")
 
-        # ABA 2: GRÁFICOS (ALTERADO AQUI CONFORME PEDIDO)
+        # ABA 2: GRÁFICOS (GRADE HORIZONTAL CORRIGIDA)
         with aba2:
             colunas_analogicas = list(LIMITES_SENSORES.keys())
             colunas_flags = [c for c in df.columns if c.startswith("Flag_")]
@@ -356,34 +356,46 @@ else:
                         fig.add_trace(go.Scattergl(x=df['Tempo_Relogio'], y=df[sensor], name=sensor, mode='lines', line=dict(color=cores[idx % len(cores)]), yaxis=axis_name))
                         vmin, vmax = LIMITES_SENSORES.get(sensor, (df[sensor].min(), df[sensor].max()))
                         axis_key = f"yaxis{idx + 1}" if idx > 0 else "yaxis"
-                        layout_updates[axis_key] = dict(range=[vmin, vmax], overlaying="y" if idx > 0 else None, visible=False, fixedrange=True)
+                        
+                        # MÁGICA DA GRADE: O primeiro sensor dita a grade horizontal para todo o gráfico
+                        if idx == 0:
+                            layout_updates[axis_key] = dict(
+                                range=[vmin, vmax], 
+                                showgrid=True, # Ativa a grade horizontal
+                                gridcolor='rgba(128, 128, 128, 0.2)',
+                                gridwidth=1,
+                                showticklabels=False, # Esconde os números para manter limpo
+                                zeroline=False,       # Tira linha de zero
+                                showline=False,       # Tira borda
+                                fixedrange=True
+                            )
+                        else:
+                            # Sensores secundários ficam invisíveis para não sobrepor outras linhas de grade
+                            layout_updates[axis_key] = dict(range=[vmin, vmax], overlaying="y", visible=False, fixedrange=True)
 
                 if tem_flags:
                     flag_axis_idx = len(selecionados_analog) + 1 if tem_analog else 1
                     axis_name_flag = f"y{flag_axis_idx}"
                     axis_key_flag = f"yaxis{flag_axis_idx}"
                     
-                    # Função para converter Hexadecimal de cor para RGBA com transparência
                     def hex_to_rgba(hex_color, opacity=0.15):
                         hex_color = hex_color.lstrip('#')
                         try:
                             r, g, b = tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
                             return f"rgba({r}, {g}, {b}, {opacity})"
                         except:
-                            return f"rgba(100, 100, 100, {opacity})" # fallback
+                            return f"rgba(100, 100, 100, {opacity})"
                     
                     for f_idx, flag in enumerate(selecionados_flags):
                         cor_idx = (len(selecionados_analog) + f_idx) % len(cores)
                         cor_hex = cores[cor_idx]
-                        cor_transparente = hex_to_rgba(cor_hex, 0.15) # Gera cor com 15% de preenchimento
+                        cor_transparente = hex_to_rgba(cor_hex, 0.15)
                         
                         valores_numericos = pd.to_numeric(df[flag], errors='coerce').fillna(0)
                         
-                        # Inverte flags específicas para o visual
                         if flag in ["Flag_CAC", "Flag_ISV", "Flag_ACC"]: 
                             valores_numericos = 1 - valores_numericos
                             
-                        # MUDANÇA: Multiplicando por 1.0 para cobrir 100% da escala Y (antes era 0.5)
                         y_plot = valores_numericos * 1.0 
                         
                         fig.add_trace(go.Scatter(
@@ -393,18 +405,28 @@ else:
                             mode='lines', 
                             line_shape='hv', 
                             line=dict(color=cor_hex, width=2),
-                            fill='tozeroy',           # Adiciona o preenchimento para baixo
-                            fillcolor=cor_transparente, # Aplica a cor com opacidade
+                            fill='tozeroy',
+                            fillcolor=cor_transparente,
                             customdata=valores_numericos.astype(int), 
                             hovertemplate=f"<b>{flag}</b>: %{{customdata}}<extra></extra>", 
                             yaxis=axis_name_flag
                         ))
                     
-                    layout_updates[axis_key_flag] = dict(range=[0.0, 1.0], overlaying="y" if tem_analog else None, visible=False, fixedrange=True)
+                    if not tem_analog:
+                        # Se só houver flags, elas assumem a responsabilidade da grade horizontal
+                        layout_updates[axis_key_flag] = dict(
+                            range=[0.0, 1.0], 
+                            showgrid=True,
+                            gridcolor='rgba(128, 128, 128, 0.2)',
+                            gridwidth=1,
+                            showticklabels=False,
+                            zeroline=False,
+                            showline=False,
+                            fixedrange=True
+                        )
+                    else:
+                        layout_updates[axis_key_flag] = dict(range=[0.0, 1.0], overlaying="y", visible=False, fixedrange=True)
 
-                # ==========================================
-                # ALTERAÇÃO AQUI: Adicionado o uirevision
-                # ==========================================
                 fig.update_layout(
                     **layout_updates, 
                     height=600, 
@@ -412,34 +434,25 @@ else:
                     template="plotly_dark", 
                     margin=dict(l=20, r=20, t=50, b=20), 
                     title="Gráficos do arquivo LOG",
-                    uirevision=st.session_state.nome_log_selecionado # Mágica que preserva o zoom/posição atual do usuário!
+                    uirevision=st.session_state.nome_log_selecionado 
                 )
                 
                 tempo_inicial = df['Tempo_Relogio'].min()
                 range_inicial = [tempo_inicial, min(tempo_inicial + pd.Timedelta(minutes=1), df['Tempo_Relogio'].max())]
                 
-                # ==========================================
-                # ALTERAÇÃO AQUI: Grid adicionado no Eixo X
-                # ==========================================
                 fig.update_xaxes(
                     title_text="Tempo (hh:mm:ss)", 
                     tickformat="%H:%M:%S", 
                     hoverformat="%H:%M:%S.%L", 
-                    range=range_inicial, 
                     rangeslider=dict(visible=True, thickness=0.05),
-                    showgrid=True,
-                    gridwidth=1,
-                    gridcolor='rgba(128, 128, 128, 0.2)' # Cinza neutro com 20% de opacidade (funciona no claro e escuro)
+                    showgrid=True,                              # Ativa a grade vertical no tempo
+                    gridcolor='rgba(128, 128, 128, 0.2)',
+                    gridwidth=1
                 )
-                
-                # ==========================================
-                # ALTERAÇÃO AQUI: Grid adicionado em todos Eixos Y
-                # ==========================================
-                fig.update_yaxes(
-                    showgrid=True,
-                    gridwidth=1,
-                    gridcolor='rgba(128, 128, 128, 0.2)' # Cinza neutro com 20% de opacidade
-                )
+
+                if st.session_state.get('zoom_inicial_aplicado') != st.session_state.nome_log_selecionado:
+                    fig.update_xaxes(range=range_inicial)
+                    st.session_state.zoom_inicial_aplicado = st.session_state.nome_log_selecionado
                 
                 st.plotly_chart(fig, width="stretch")
 
