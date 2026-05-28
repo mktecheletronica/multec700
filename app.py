@@ -331,7 +331,7 @@ else:
             col_c.metric("TPS Médio", f"{df['TPS (%)'].mean():.1f} %")
             col_d.metric("MAP Médio", f"{df['MAP (kPa)'].mean():.1f} kPa")
 
-        # ABA 2: GRÁFICOS (GRADE HORIZONTAL CORRIGIDA)
+        # ABA 2: GRÁFICOS (RETORNADO AO ESTADO ESTÁVEL)
         with aba2:
             colunas_analogicas = list(LIMITES_SENSORES.keys())
             colunas_flags = [c for c in df.columns if c.startswith("Flag_")]
@@ -356,8 +356,6 @@ else:
                         fig.add_trace(go.Scattergl(x=df['Tempo_Relogio'], y=df[sensor], name=sensor, mode='lines', line=dict(color=cores[idx % len(cores)]), yaxis=axis_name))
                         vmin, vmax = LIMITES_SENSORES.get(sensor, (df[sensor].min(), df[sensor].max()))
                         axis_key = f"yaxis{idx + 1}" if idx > 0 else "yaxis"
-                        
-                        # Retirado o código das grades, retornando ao estado original limpo
                         layout_updates[axis_key] = dict(range=[vmin, vmax], overlaying="y" if idx > 0 else None, visible=False, fixedrange=True)
 
                 if tem_flags:
@@ -399,38 +397,29 @@ else:
                             yaxis=axis_name_flag
                         ))
                     
-                    # Retirado o código das grades, retornando ao estado original limpo
                     layout_updates[axis_key_flag] = dict(range=[0.0, 1.0], overlaying="y" if tem_analog else None, visible=False, fixedrange=True)
 
-                # ==========================================
-                # CORREÇÃO DEFINITIVA DO ZOOM
-                # ==========================================
+                # Layout Original Restaurado
                 fig.update_layout(
                     **layout_updates, 
                     height=600, 
                     hovermode="x unified", 
                     template="plotly_dark", 
                     margin=dict(l=20, r=20, t=50, b=20), 
-                    title="Gráficos do arquivo LOG",
-                    uirevision=st.session_state.nome_log_selecionado # Trava n.º 1 (Layout)
+                    title="Gráficos do arquivo LOG"
                 )
                 
-                # O X-axes não tem mais propriedades de grid
+                tempo_inicial = df['Tempo_Relogio'].min()
+                range_inicial = [tempo_inicial, min(tempo_inicial + pd.Timedelta(minutes=1), df['Tempo_Relogio'].max())]
+                
                 fig.update_xaxes(
                     title_text="Tempo (hh:mm:ss)", 
                     tickformat="%H:%M:%S", 
                     hoverformat="%H:%M:%S.%L", 
-                    rangeslider=dict(visible=True, thickness=0.05),
-                    uirevision=st.session_state.nome_log_selecionado # Trava n.º 2 EXCLUSIVA para o eixo X
+                    range=range_inicial, 
+                    rangeslider=dict(visible=True, thickness=0.05)
                 )
 
-                # Controle Inteligente de Zoom Inicial
-                if st.session_state.get('zoom_inicial_aplicado') != st.session_state.nome_log_selecionado:
-                    tempo_inicial = df['Tempo_Relogio'].min()
-                    range_inicial = [tempo_inicial, min(tempo_inicial + pd.Timedelta(minutes=1), df['Tempo_Relogio'].max())]
-                    fig.update_xaxes(range=range_inicial)
-                    st.session_state.zoom_inicial_aplicado = st.session_state.nome_log_selecionado
-                
                 st.plotly_chart(fig, width="stretch")
 
         # ABA 3: DIAGNÓSTICO E INTELIGÊNCIA ARTIFICIAL
