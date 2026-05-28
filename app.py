@@ -402,10 +402,45 @@ else:
                     
                     layout_updates[axis_key_flag] = dict(range=[0.0, 1.0], overlaying="y" if tem_analog else None, visible=False, fixedrange=True)
 
-                fig.update_layout(**layout_updates, height=600, hovermode="x unified", template="plotly_dark", margin=dict(l=20, r=20, t=50, b=20), title="Gráficos do arquivo LOG")
+                # ==========================================
+                # ALTERAÇÃO AQUI: Adicionado o uirevision
+                # ==========================================
+                fig.update_layout(
+                    **layout_updates, 
+                    height=600, 
+                    hovermode="x unified", 
+                    template="plotly_dark", 
+                    margin=dict(l=20, r=20, t=50, b=20), 
+                    title="Gráficos do arquivo LOG",
+                    uirevision=st.session_state.nome_log_selecionado # Mágica que preserva o zoom/posição atual do usuário!
+                )
+                
                 tempo_inicial = df['Tempo_Relogio'].min()
                 range_inicial = [tempo_inicial, min(tempo_inicial + pd.Timedelta(minutes=1), df['Tempo_Relogio'].max())]
-                fig.update_xaxes(title_text="Tempo (hh:mm:ss)", tickformat="%H:%M:%S", hoverformat="%H:%M:%S.%L", range=range_inicial, rangeslider=dict(visible=True, thickness=0.05))
+                
+                # ==========================================
+                # ALTERAÇÃO AQUI: Grid adicionado no Eixo X
+                # ==========================================
+                fig.update_xaxes(
+                    title_text="Tempo (hh:mm:ss)", 
+                    tickformat="%H:%M:%S", 
+                    hoverformat="%H:%M:%S.%L", 
+                    range=range_inicial, 
+                    rangeslider=dict(visible=True, thickness=0.05),
+                    showgrid=True,
+                    gridwidth=1,
+                    gridcolor='rgba(128, 128, 128, 0.2)' # Cinza neutro com 20% de opacidade (funciona no claro e escuro)
+                )
+                
+                # ==========================================
+                # ALTERAÇÃO AQUI: Grid adicionado em todos Eixos Y
+                # ==========================================
+                fig.update_yaxes(
+                    showgrid=True,
+                    gridwidth=1,
+                    gridcolor='rgba(128, 128, 128, 0.2)' # Cinza neutro com 20% de opacidade
+                )
+                
                 st.plotly_chart(fig, width="stretch")
 
         # ABA 3: DIAGNÓSTICO E INTELIGÊNCIA ARTIFICIAL
