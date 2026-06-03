@@ -8,6 +8,7 @@ import io
 import numpy as np
 import time
 import re
+import gc # adicionado para liberação de memória dos objetos que não são mais necessários
 
 # Suprimir o FutureWarning do pacote antigo google.generativeai nos logs da Railway
 import warnings
@@ -31,7 +32,10 @@ if ENABLE_AI_DIAGNOSIS:
     try:
         import joblib
         import os
-        os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+        os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' # Suprime logs do TF
+        
+        # IMPORTANTE PARA MEMÓRIA: Importar o backend do Keras para limpar a sessão
+        import tensorflow.keras.backend as K
         from tensorflow.keras.models import load_model
         
         from data_pipeline import MultecDataPipeline
@@ -64,6 +68,8 @@ if 'log_selecionado' not in st.session_state:
 def limpar_selecao():
     st.session_state.log_selecionado = None
     st.session_state.nome_log_selecionado = ""
+    # Forçar limpeza de memória ao voltar para a home
+    gc.collect()
 
 # --- Mapeamento das 53 Colunas ---
 COLUNAS = [
@@ -129,7 +135,7 @@ def carregar_lista_logs_publicos():
     except Exception:
         return pd.DataFrame()
 
-@st.cache_data
+@st.cache_data(ttl=600, max_entries=1)
 def carregar_dados(arquivo_ou_url_ou_conteudo, colunas, nome_sugerido=""):
     """Retorna o DataFrame e o nome real do ficheiro detetado"""
     nome_original = nome_sugerido
@@ -168,6 +174,12 @@ def carregar_dados(arquivo_ou_url_ou_conteudo, colunas, nome_sugerido=""):
         conteudo_limpo = io.StringIO('\n'.join(linhas_validas))
         df = pd.read_csv(conteudo_limpo, sep="|", header=None, names=colunas)
         
+        # OTIMIZAÇÃO DE MEMÓRIA: Downcast imediato para float32 e int32 (Corta o uso de RAM pela metade)
+        float_cols = df.select_dtypes(include=['float64']).columns
+        int_cols = df.select_dtypes(include=['int64']).columns
+        df[float_cols] = df[float_cols].astype('float32')
+        df[int_cols] = df[int_cols].astype('int32')
+        
         df["RTM (s)"] = pd.to_numeric(df["RTM (s)"], errors="coerce")
         df = df.dropna(subset=["RTM (s)"]).copy()
         df = df[df["RTM (s)"] > 0].copy()
@@ -181,7 +193,7 @@ def carregar_dados(arquivo_ou_url_ou_conteudo, colunas, nome_sugerido=""):
         
         counts = df.groupby("RTM (s)")["RTM (s)"].transform('count')
         cumcounts = df.groupby("RTM (s)").cumcount()
-        df["RTM_Continuo"] = df["RTM (s)"] + (cumcounts / counts)
+        df["RTM_Continuo"] = df["RTM (s)"] + (cumcounts / counts).astype('float32')
         df["Tempo_Relogio"] = pd.to_datetime(df["RTM_Continuo"], unit='s')
         
         return df, nome_original
@@ -189,10 +201,13 @@ def carregar_dados(arquivo_ou_url_ou_conteudo, colunas, nome_sugerido=""):
         st.error(f"Erro ao processar o arquivo: {e}")
         return None, nome_original
 
-@st.cache_resource
+@st.cache_resource(max_entries=1)
 def carregar_cerebro_ia():
     if not IA_DISPONIVEL: return None, None, None, None, None
     try:
+        # Limpa qualquer modelo Keras fantasma na memória antes de carregar um novo
+        K.clear_session()
+        
         scaler = joblib.load("scaler_multec.pkl")
         modelo = load_model("cerebro_multec_autoencoder.keras")
         pipeline = MultecDataPipeline(target_freq_hz=6)
@@ -284,7 +299,6 @@ if st.session_state.log_selecionado is None:
 
 # Fluxo 2: Log Selecionado (Abre APENAS o Painel de Análise)
 else:
-    # --- NOVIDADE: Título e Botão na mesma linha ---
     col_title, col_btn = st.columns([5, 1])
     with col_title:
         st.markdown("<h3 style='text-align: left; color: #4F4F4F; margin-top: 0px; margin-bottom: 20px;'>Visualizador de LOG's Multec 700 DashBoard 3.0</h3>", unsafe_allow_html=True)
@@ -331,7 +345,7 @@ else:
             col_c.metric("TPS Médio", f"{df['TPS (%)'].mean():.1f} %")
             col_d.metric("MAP Médio", f"{df['MAP (kPa)'].mean():.1f} kPa")
 
-        # ABA 2: GRÁFICOS (RETORNADO AO ESTADO ESTÁVEL)
+        # ABA 2: GRÁFICOS
         with aba2:
             colunas_analogicas = list(LIMITES_SENSORES.keys())
             colunas_flags = [c for c in df.columns if c.startswith("Flag_")]
@@ -399,7 +413,6 @@ else:
                     
                     layout_updates[axis_key_flag] = dict(range=[0.0, 1.0], overlaying="y" if tem_analog else None, visible=False, fixedrange=True)
 
-                # Layout Original Restaurado
                 fig.update_layout(
                     **layout_updates, 
                     height=600, 
@@ -421,6 +434,10 @@ else:
                 )
 
                 st.plotly_chart(fig, width="stretch")
+                
+                # Liberar memória do gráfico logo após renderizar
+                del fig
+                gc.collect()
 
         # ABA 3: DIAGNÓSTICO E INTELIGÊNCIA ARTIFICIAL
         with aba3:
@@ -452,7 +469,12 @@ else:
                     st.warning(f"O módulo de IA não está disponível neste servidor. Erro interno: {ERRO_CARREGAMENTO_IA}")
                 else:
                     if st.button("🔍 Executar a Análise com IA", type="primary"):
-                        with st.spinner("Iniciando os modelos matemáticos e a avaliando o Log..."):
+                        with st.spinner("Iniciando os modelos matemáticos e avaliando o Log..."):
+                            
+                            # Variáveis para limpar no finally
+                            df_cru_ia = None
+                            df_alvo = None
+                            fig_ia = None
                             
                             try:
                                 scaler, modelo, pipeline, mestre, biblioteca = carregar_cerebro_ia()
@@ -460,8 +482,6 @@ else:
                                 if modelo is None:
                                     st.error("Falha ao carregar o Cérebro Neural. Operação cancelada.")
                                 else:
-                                    # --- ETAPA 1: PREPARAÇÃO DOS DADOS E FUNIL DE SINAIS ---
-                                    # Reconstrução Dinâmica do DataFrame Cru para o Pipeline da IA (6Hz)
                                     if isinstance(st.session_state.log_selecionado, str) and st.session_state.log_selecionado.startswith("http"):
                                         resposta = requests.get(st.session_state.log_selecionado)
                                         texto_cru = resposta.text
@@ -473,36 +493,32 @@ else:
                                     
                                     df_alvo = pipeline.processar_log(df_cru_ia)
                                     
-                                    # Extração de Features Temporais (Diferenças absolutas)
-                                    # Ajuda a IA e o Crivo a entenderem a taxa de variação dos sensores
-                                    df_alvo['CO2_Diff'] = df_alvo['CO2 (V)'].diff().fillna(0)
-                                    df_alvo['TPS_Diff_Abs'] = df_alvo['TPS (%)'].diff().fillna(0).abs()
-                                    df_alvo['RPM_Diff_Abs'] = df_alvo['RPM'].diff().fillna(0).abs()
-                                    df_alvo['Bateria_Diff_Abs'] = df_alvo['Bateria (V)'].diff().fillna(0).abs()
-                                    df_alvo['MAP_V_Diff_Abs'] = df_alvo['MAP (V)'].diff().fillna(0).abs()
-                                    df_alvo['MAP_kPa_Diff_Abs'] = df_alvo['MAP (kPa)'].diff().fillna(0).abs()
-                                    df_alvo['CTS_V_Diff_Abs'] = df_alvo['CTS (V)'].diff().fillna(0).abs()
-                                    df_alvo['CTS_C_Diff_Abs'] = df_alvo['CTS (°C)'].diff().fillna(0).abs()
-                                    df_alvo['TPS_V_Diff_Abs'] = df_alvo['TPS (V)'].diff().fillna(0).abs()
+                                    # OTIMIZAÇÃO: Downcast float32 como o utilizador sugeriu, mas com segurança de nulos
+                                    float_cols = df_alvo.select_dtypes(include=['float64']).columns
+                                    df_alvo[float_cols] = df_alvo[float_cols].astype('float32')
                                     
-                                    # Limites Globais de MAD (Mean Absolute Deviation) baseados na carga do motor
+                                    df_alvo['CO2_Diff'] = df_alvo['CO2 (V)'].diff().fillna(0).astype('float32')
+                                    df_alvo['TPS_Diff_Abs'] = df_alvo['TPS (%)'].diff().fillna(0).abs().astype('float32')
+                                    df_alvo['RPM_Diff_Abs'] = df_alvo['RPM'].diff().fillna(0).abs().astype('float32')
+                                    df_alvo['Bateria_Diff_Abs'] = df_alvo['Bateria (V)'].diff().fillna(0).abs().astype('float32')
+                                    df_alvo['MAP_V_Diff_Abs'] = df_alvo['MAP (V)'].diff().fillna(0).abs().astype('float32')
+                                    df_alvo['MAP_kPa_Diff_Abs'] = df_alvo['MAP (kPa)'].diff().fillna(0).abs().astype('float32')
+                                    df_alvo['CTS_V_Diff_Abs'] = df_alvo['CTS (V)'].diff().fillna(0).abs().astype('float32')
+                                    df_alvo['CTS_C_Diff_Abs'] = df_alvo['CTS (°C)'].diff().fillna(0).abs().astype('float32')
+                                    df_alvo['TPS_V_Diff_Abs'] = df_alvo['TPS (V)'].diff().fillna(0).abs().astype('float32')
+                                    
                                     limites_por_estado = {'Idle': 3.5, 'Cruise': 4.0, 'Decel': 4.5, 'WOT': 5.0, 'Warmup': 6.0}
                                     limite_global_mad = 4.0
 
-                                    # --- ETAPA 2: CÉREBRO NEURAL (AUTOENCODER) ---
-                                    # Normaliza os dados e pede à rede neural para prever a reconstrução
                                     dados_normalizados = scaler.transform(df_alvo[COLUNAS_IA])
                                     dados_reconstruidos = modelo.predict(dados_normalizados, verbose=0)
                                     
-                                    # Cálculo de Erros Residuais da Rede Neural
                                     erros_individuais_brutos = np.power(dados_normalizados - dados_reconstruidos, 2)
                                     df_erros_individuais = pd.DataFrame(erros_individuais_brutos, columns=COLUNAS_IA, index=df_alvo.index)
                                     
-                                    df_alvo['Erro_IA_Pura'] = np.mean(erros_individuais_brutos, axis=1)
-                                    df_alvo['Limite_MAD_Estado'] = df_alvo['Estado_Motor'].map(limites_por_estado).fillna(limite_global_mad)
+                                    df_alvo['Erro_IA_Pura'] = np.mean(erros_individuais_brutos, axis=1).astype('float32')
+                                    df_alvo['Limite_MAD_Estado'] = df_alvo['Estado_Motor'].map(limites_por_estado).fillna(limite_global_mad).astype('float32')
 
-                                    # --- ETAPA 3: MESTRE MECÂNICO (SISTEMA ESPECIALISTA) ---
-                                    # Avaliação Simbólica Baseada em Regras (Impede que a IA ignore princípios da física)
                                     diagnosticos, sensores_culpados_brutos, grau_severidade = [], [], []
                                     for index, linha in df_alvo.iterrows():
                                         erro_ia = linha['Erro_IA_Pura']
@@ -522,13 +538,11 @@ else:
                                             sensores_culpados_brutos.append("Nenhum")
                                             grau_severidade.append(0)
 
-                                    df_alvo['Severidade_Final'] = grau_severidade
+                                    df_alvo['Severidade_Final'] = pd.Series(grau_severidade, dtype='float32')
                                     df_alvo['Diagnostico_Texto'] = diagnosticos
                                     df_alvo['Culpado_Bruto'] = sensores_culpados_brutos
                                     df_alvo['Culpado_Final'] = df_alvo['Culpado_Bruto']
                                     
-                                    # --- ETAPA 4: CRIVO DE SANIDADE (FILTRO DE FALSOS POSITIVOS) ---
-                                    # Se a IA Genérica detetar anomalias estatísticas, o crivo valida se a variação é real ou elétrica
                                     mask_ia = df_alvo['Culpado_Bruto'] == 'IA_Genérica'
                                     if mask_ia.any():
                                         max_sensors = df_erros_individuais.loc[mask_ia, SENSORES_CAUSA_RAIZ].idxmax(axis=1)
@@ -553,10 +567,8 @@ else:
                                         df_alvo.loc[invalid_ia_mask, 'Culpado_Final'] = "Nenhum"
                                         df_alvo.loc[invalid_ia_mask, 'Culpado_Bruto'] = "Nenhum"
                                         df_alvo.loc[invalid_ia_mask, 'Diagnostico_Texto'] = "Normal"
-                                        df_alvo.loc[invalid_ia_mask, 'Severidade_Final'] = 0
+                                        df_alvo.loc[invalid_ia_mask, 'Severidade_Final'] = 0.0
 
-                                    # --- ETAPA 5: CONFIRMAÇÃO TEMPORAL E FILTRO DE BORDAS ---
-                                    # Evita que picos de 1 frame (ruído de comunicação) gerem diagnósticos falsos
                                     FREQ_HZ = 6
                                     frames_persistencia = max(2, int(FREQ_HZ * 0.4)) 
                                     anomalia_instantanea = df_alvo['Severidade_Final'] > df_alvo['Limite_MAD_Estado']
@@ -567,7 +579,6 @@ else:
                                     df_alvo.iloc[:n_start, df_alvo.columns.get_loc('Falha_Confirmada')] = False
                                     df_alvo.iloc[-n_end:, df_alvo.columns.get_loc('Falha_Confirmada')] = False
 
-                                    # --- ETAPA 6: ORQUESTRAÇÃO DTW E LAUDO FINAL ---
                                     falhas_confirmadas = df_alvo[df_alvo['Falha_Confirmada']]
                                     picos_falha = len(falhas_confirmadas)
                                     
@@ -590,11 +601,13 @@ else:
                                             
                                             sensores_para_grafico.extend(culpados)
                                             
-                                            # Submissão à Fase 2 (Comparação com a Biblioteca de Curvas DTW)
                                             df_recorte = df_alvo[df_alvo['Falha_Confirmada']].copy()
                                             diag_dtw, distancia = biblioteca.classificar_anomalia(df_recorte, culpados)
                                             assinatura_dtw = diag_dtw
                                             st.info(f"**Análise de Curva (DTW):** {diag_dtw}")
+                                            
+                                            # Limpar df temporário
+                                            del df_recorte
                                         
                                         if len(falhas_ia) > 0:
                                             principal_ia = falhas_ia['Culpado_Final'].value_counts().index[0]
@@ -612,10 +625,8 @@ else:
                                         texto_laudo_llm = "Nenhum problema encontrado. O motor está a funcionar perfeitamente dentro das tolerâncias físicas e estatísticas."
                                         assinatura_dtw = "Nenhuma"
 
-                                    # Remover duplicados para o gráfico multi-eixo
                                     sensores_para_grafico = list(dict.fromkeys(sensores_para_grafico))[:4]
 
-                                    # --- ETAPA 7: RENDERIZAÇÃO DO RELATÓRIO GRÁFICO (PLOTLY) ---
                                     st.markdown("#### Relatório Gráfico Detalhado:")
                                     
                                     if 'RTM (s)' in df_alvo.columns:
@@ -637,7 +648,6 @@ else:
                                         specs=[[{"secondary_y": True}]] + [[{"secondary_y": False}]] * (num_paineis - 1)
                                     )
                                     
-                                    # Gráfico 1: RPM e TPS com Fundo Dinâmico do Estado do Motor
                                     leg_1 = "legend"
                                     fig_ia.add_trace(go.Scatter(x=tempo_plot, y=df_alvo['RPM'], name='RPM', line=dict(color='#1f77b4', width=2), legend=leg_1), row=1, col=1, secondary_y=False)
                                     fig_ia.add_trace(go.Scatter(x=tempo_plot, y=df_alvo['TPS (%)'], name='TPS (%)', line=dict(color='#2ca02c', width=1.5), opacity=0.7, legend=leg_1), row=1, col=1, secondary_y=True)
@@ -655,7 +665,6 @@ else:
                                     fig_ia.update_yaxes(title_text="RPM", title_font=dict(color="#1f77b4", size=11, family="Arial Black"), range=[0, 6800], row=1, col=1, secondary_y=False)
                                     fig_ia.update_yaxes(title_text="TPS (%)", title_font=dict(color="#2ca02c", size=11, family="Arial Black"), range=[0, 100], row=1, col=1, secondary_y=True)
 
-                                    # Gráficos Dinâmicos: Sensores Culpados pela IA com Realce da Anomalia
                                     for i, sensor in enumerate(sensores_para_grafico):
                                         row = i + 2
                                         leg_s = f"legend{row}"
@@ -670,7 +679,6 @@ else:
                                         
                                         fig_ia.update_yaxes(title_text=sensor, title_font=dict(color="darkorange", size=11, family="Arial Black"), row=row, col=1)
 
-                                    # Gráfico Final: Limite MAD (Constante) vs Erro de Reconstrução da Rede Neural
                                     row_ia = num_paineis
                                     leg_ia = f"legend{row_ia}"
                                     fig_ia.add_trace(go.Scatter(x=tempo_plot, y=df_alvo['Severidade_Final'], name='Erro Reconstrução', line=dict(color='white', width=1.5), legend=leg_ia), row=row_ia, col=1)
@@ -687,7 +695,6 @@ else:
 
                                     fig_ia.update_yaxes(title_text="Gravidade", title_font=dict(color="white", size=11, family="Arial Black"), row=row_ia, col=1)
 
-                                    # Bloqueio de Zoom e Configurações de UI Plotly
                                     layout_updates = {
                                         "height": 250 + (220 * (num_paineis - 1)), 
                                         "template": "plotly_dark",
@@ -714,13 +721,11 @@ else:
 
                                     st.plotly_chart(fig_ia, width="stretch", config={'scrollZoom': False})
 
-                                    # --- ETAPA 8: RESPOSTA HUMANIZADA (LLM - GOOGLE GEMINI) ---
                                     if ENABLE_LLM_EXPLANATION and picos_falha > 0:
                                         st.markdown("---")
                                         st.markdown("### Laudo Técnico do Mecânico Virtual:")
                                         with st.spinner("Gerando Laudo Técnico..."):
                                             try:
-                                                # Identificação do veículo (Extraída do DataFrame via Memcal) para alimentar a IA
                                                 memcal_id = int(df["Memcal ID"].iloc[-1])
                                                 descricao_modulo = MEMCAL_MAP.get(memcal_id, "Modelo Desconhecido")
                                                 combustivel = "Álcool" if "ALC" in descricao_modulo.upper() else "Gasolina"
@@ -729,7 +734,6 @@ else:
                                                 combustivel = "Desconhecido"
 
                                             try:
-                                                # Resgate dinâmico e seguro da Chave API
                                                 chave_api = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or ""
                                                 if not chave_api:
                                                     try:
@@ -766,7 +770,6 @@ else:
                                                     """
                                                    
                                                     if NOVO_SDK_GENAI:
-                                                        # Integração utilizando o Novo SDK da Google
                                                         client = genai.Client(api_key=chave_api)
                                                         resposta_llm = client.models.generate_content(
                                                             model='gemini-2.5-flash',
@@ -775,7 +778,6 @@ else:
                                                         st.info(resposta_llm.text)
                                                         st.caption("⚠️ *Nota: A Inteligência Artificial pode cometer erros de interpretação. Confirme sempre o diagnóstico com um profissional qualificado.*")
                                                     else:
-                                                        # Integração utilizando o SDK Clássico (google-generativeai)
                                                         genai_old.configure(api_key=chave_api)
                                                         modelos_permitidos = [m.name for m in genai_old.list_models() if 'generateContent' in m.supported_generation_methods]
                                                         
@@ -803,7 +805,26 @@ else:
 
                             except Exception as err:
                                 st.error(f"❌ Ocorreu um erro inesperado durante a análise de IA: {err}")
-
+                            finally:
+                                # OTIMIZAÇÃO: Excluir os grandes objetos de memória explicitamente antes do garbage collector
+                                if df_cru_ia is not None:
+                                    del df_cru_ia
+                                if df_alvo is not None:
+                                    del df_alvo
+                                if fig_ia is not None:
+                                    del fig_ia
+                                if 'dados_normalizados' in locals():
+                                    del dados_normalizados
+                                if 'dados_reconstruidos' in locals():
+                                    del dados_reconstruidos
+                                    
+                                # Limpar a sessão do Keras/TensorFlow para liberar memória de tensores
+                                if IA_DISPONIVEL:
+                                    K.clear_session()
+                                    
+                                # força a liberação de memória
+                                gc.collect()
+    
         # ABA 4: DADOS BRUTOS
         with aba4:
             st.subheader("Tabela de Dados Brutos")
