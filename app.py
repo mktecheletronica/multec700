@@ -16,7 +16,7 @@ warnings.filterwarnings("ignore", category=FutureWarning, module="google.generat
 
 # ==============================================================================
 # 🔴 KILL SWITCHES (CONTROLOS DE SEGURANÇA) 🔴
-# Altere para False caso note alguma instabilidade no servidor ou queira desligar as funções
+# Altere para False caso note alguma instabilidade no servidor ou queira desligar as funções.
 # ==============================================================================
 ENABLE_AI_DIAGNOSIS = True       # Liga/Desliga todo o módulo de Inteligência Artificial
 ENABLE_LLM_EXPLANATION = True    # Liga/Desliga apenas a resposta humanizada (ChatGPT/Gemini)
