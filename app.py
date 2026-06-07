@@ -9,6 +9,8 @@ import numpy as np
 import time
 import re
 import gc # adicionado para liberação de memória dos objetos que não são mais necessários
+import psycopg2 # Adicionado para conexão local
+import os # Adicionado para leitura do SSD
 
 # Suprimir o FutureWarning do pacote antigo google.generativeai nos logs da Railway
 import warnings
@@ -31,7 +33,6 @@ NOVO_SDK_GENAI = False
 if ENABLE_AI_DIAGNOSIS:
     try:
         import joblib
-        import os
         os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' # Suprime logs do TF
         
         # IMPORTANTE PARA MEMÓRIA: Importar o backend do Keras para limpar a sessão
@@ -119,20 +120,53 @@ MEMCAL_MAP = {
 
 @st.cache_data(ttl=60)
 def carregar_lista_logs_publicos():
-    sheet_id = "1dOhOKjJlnPAJNdUC2lAH9JUGzjYzuKaB-18_e1g6kdw"
-    url_planilha = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv"
     try:
-        df = pd.read_csv(url_planilha)
-        num_colunas = len(df.columns)
-        if num_colunas >= 16:
-            df.columns = [
-                "Data/Hora", "ID", "Duração", "Usuário", "Veículo", "Comentário", "Obs_Moderador", 
-                "Status_Geral", "Tipo_Trajeto", "F_Engasgo", "F_Partida", "F_Potencia", 
-                "F_MarchaLenta", "F_Apagando", "F_Consumo", "ID_Arquivo"
-            ]
+        conn = psycopg2.connect(dbname="telemetria", user="mktech", port="5433")
+        query = """
+            SELECT data_hora, id_placa, duracao, usuario, veiculo, comentario, obs_moderador,
+                   status_geral, tipo_trajeto, f_engasgo, f_partida, f_potencia,
+                   f_marcha_lenta, f_apagando, f_consumo, caminho_arquivo_local
+            FROM multec_comunidade
+            ORDER BY data_hora DESC
+        """
+        df = pd.read_sql_query(query, conn)
+        conn.close()
+
+        if df.empty:
+            return pd.DataFrame()
+
+        mapeamento = {
+            "data_hora": "Data/Hora",
+            "id_placa": "ID",
+            "duracao": "Duração",
+            "usuario": "Usuário",
+            "veiculo": "Veículo",
+            "comentario": "Comentário",
+            "obs_moderador": "Obs_Moderador",
+            "status_geral": "Status_Geral",
+            "tipo_trajeto": "Tipo_Trajeto",
+            "f_engasgo": "F_Engasgo",
+            "f_partida": "F_Partida",
+            "f_potencia": "F_Potencia",
+            "f_marcha_lenta": "F_MarchaLenta",
+            "f_apagando": "F_Apagando",
+            "f_consumo": "F_Consumo",
+            "caminho_arquivo_local": "ID_Arquivo"
+        }
+        df = df.rename(columns=mapeamento)
+        
+        df["Data/Hora"] = pd.to_datetime(df["Data/Hora"]).dt.strftime('%d/%m/%Y %H:%M:%S')
+        
+        colunas_esperadas = ["Data/Hora", "ID", "Duração", "Usuário", "Veículo", "Comentário", "Obs_Moderador", "Status_Geral", "Tipo_Trajeto", "F_Engasgo", "F_Partida", "F_Potencia", "F_MarchaLenta", "F_Apagando", "F_Consumo", "ID_Arquivo"]
+        for col in colunas_esperadas:
+            if col not in df.columns:
+                df[col] = ""
+
+        df = df[colunas_esperadas]
         df = df.fillna("")
         return df
-    except Exception:
+    except Exception as e:
+        st.error(f"Erro ao carregar lista do Banco de Dados local: {e}")
         return pd.DataFrame()
 
 @st.cache_data(ttl=600, max_entries=1)
@@ -146,11 +180,14 @@ def carregar_dados(arquivo_ou_url_ou_conteudo, colunas, nome_sugerido=""):
                 resposta.raise_for_status()
                 texto_cru = resposta.text
                 
-                # Tenta capturar o nome real do ficheiro extraindo do cabeçalho do Google Drive
                 cd = resposta.headers.get('content-disposition', '')
                 match = re.findall(r'filename="?([^";]+)"?', cd)
                 if match:
                     nome_original = match[0]
+            elif os.path.exists(arquivo_ou_url_ou_conteudo):
+                with open(arquivo_ou_url_ou_conteudo, 'r', encoding='utf-8', errors='ignore') as f:
+                    texto_cru = f.read()
+                nome_original = os.path.basename(arquivo_ou_url_ou_conteudo)
             else:
                 texto_cru = arquivo_ou_url_ou_conteudo
         else:
@@ -266,8 +303,8 @@ if st.session_state.log_selecionado is None:
             idx = event.selection.rows[0]
             linha_selecionada = df_publicos.iloc[idx]
             
-            st.session_state.log_selecionado = f"https://drive.google.com/uc?export=download&id={linha_selecionada['ID_Arquivo']}"
-            st.session_state.nome_log_selecionado = "Arquivo da Comunidade" # Fallback, a função carregar_dados vai sobrescrever com o nome real
+            st.session_state.log_selecionado = linha_selecionada['ID_Arquivo']
+            st.session_state.nome_log_selecionado = f"Log de {linha_selecionada['Veículo']}"
             st.rerun() # Transita para o Painel automaticamente
             
     else:
@@ -486,9 +523,15 @@ else:
                                 if modelo is None:
                                     st.error("Falha ao carregar o Cérebro Neural. Operação cancelada.")
                                 else:
-                                    if isinstance(st.session_state.log_selecionado, str) and st.session_state.log_selecionado.startswith("http"):
-                                        resposta = requests.get(st.session_state.log_selecionado)
-                                        texto_cru = resposta.text
+                                    if isinstance(st.session_state.log_selecionado, str):
+                                        if st.session_state.log_selecionado.startswith("http"):
+                                            resposta = requests.get(st.session_state.log_selecionado)
+                                            texto_cru = resposta.text
+                                        elif os.path.exists(st.session_state.log_selecionado):
+                                            with open(st.session_state.log_selecionado, 'r', encoding='utf-8', errors='ignore') as f:
+                                                texto_cru = f.read()
+                                        else:
+                                            texto_cru = st.session_state.log_selecionado
                                     else:
                                         texto_cru = st.session_state.log_selecionado
                                         
