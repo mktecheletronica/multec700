@@ -121,7 +121,7 @@ MEMCAL_MAP = {
 @st.cache_data(ttl=60)
 def carregar_lista_logs_publicos():
     try:
-        conn = psycopg2.connect(dbname="telemetria", user="mktech", port="5433")
+        conn = psycopg2.connect(dbname="telemetria", user="mktech", port="5433", client_encoding="utf8")
         query = """
             SELECT data_hora, id_placa, duracao, usuario, veiculo, comentario, obs_moderador,
                    status_geral, tipo_trajeto, f_engasgo, f_partida, f_potencia,
@@ -365,9 +365,9 @@ else:
             #st.success(f"Log carregado: **{nome_final}** (Dashboard v{versao_dash} | {len(df)} registros)")
             try:
                 memcal_id = int(df["Memcal ID"].iloc[-1])
-                nome_modulo = MEMCAL_MAP.get(memcal_id, f"MODULO GM - ID MEMCAL: {memcal_id} (Dashboard v{versao_dash} | {len(df)} registros)")
+                nome_modulo = MEMCAL_MAP.get(memcal_id, f"MODULO GM - ID MEMCAL: {memcal_id}")
             except:
-                nome_modulo = "Módulo Desconhecido (Dashboard v{versao_dash} | {len(df)} registros)"
+                nome_modulo = "Módulo Desconhecido"
                 
             st.info(f"**Módulo Identificado:** {nome_modulo}")
             
