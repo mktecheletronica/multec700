@@ -365,9 +365,9 @@ else:
             #st.success(f"Log carregado: **{nome_final}** (Dashboard v{versao_dash} | {len(df)} registros)")
             try:
                 memcal_id = int(df["Memcal ID"].iloc[-1])
-                nome_modulo = MEMCAL_MAP.get(memcal_id, f"MODULO GM - ID MEMCAL: {memcal_id}")
+                nome_modulo = MEMCAL_MAP.get(memcal_id, f"MODULO GM - ID MEMCAL: {memcal_id} (Dashboard v{versao_dash} | {len(df)} registros)")
             except:
-                nome_modulo = "Módulo Desconhecido"
+                nome_modulo = "Módulo Desconhecido (Dashboard v{versao_dash} | {len(df)} registros)"
                 
             st.info(f"**Módulo Identificado:** {nome_modulo}")
             
